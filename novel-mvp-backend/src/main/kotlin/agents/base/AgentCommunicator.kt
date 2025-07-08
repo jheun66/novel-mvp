@@ -12,7 +12,7 @@ class SimpleAgentCommunicator : AgentCommunicator {
     
     init {
         // Create channels for known agents
-        listOf("conversation", "emotion-analysis", "story-generation", "fish-speech").forEach { agent ->
+        listOf("conversation", "emotion-analysis", "story-generation").forEach { agent ->
             channels[agent] = Channel(Channel.BUFFERED)
         }
     }

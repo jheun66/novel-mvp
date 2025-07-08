@@ -7,6 +7,8 @@ serialization-version = "1.6.2"
 coroutines-version = "1.8.0"
 openai-client-version = "4.0.1"
 google-genai-version = "1.7.0"
+kotest-version = "5.9.1"
+mockk-version = "1.13.11"
 
 [libraries]
 ktor-server-cors = { module = "io.ktor:ktor-server-cors", version.ref = "ktor-version" }
@@ -28,6 +30,12 @@ kotlin-test-junit = { module = "org.jetbrains.kotlin:kotlin-test-junit", version
 openai-client = { module = "com.aallam.openai:openai-client", version.ref = "openai-client-version" }
 google-genai = { module = "com.google.genai:google-genai", version.ref = "google-genai-version" }
 dotenv-kotlin = { module = "io.github.cdimascio:dotenv-kotlin", version.ref = "dotenv-version" }
+kotest-runner-junit5 = { module = "io.kotest:kotest-runner-junit5", version.ref = "kotest-version" }
+kotest-assertions-core = { module = "io.kotest:kotest-assertions-core", version.ref = "kotest-version" }
+kotest-property = { module = "io.kotest:kotest-property", version.ref = "kotest-version" }
+kotest-extensions-kotlin = { module = "io.kotest.extensions:kotest-extensions-kotlin", version.ref = "kotest-version" }
+mockk = { module = "io.mockk:mockk", version.ref = "mockk-version" }
+kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines-version" }
 
 [plugins]
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin-version" }

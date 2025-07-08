@@ -1,0 +1,464 @@
+---
+description: Use Kotest with DCI pattern for all test cases
+globs: "**/*Test.kt, **/*Spec.kt, **/test/**/*.kt"
+alwaysApply: true
+---
+# Kotest Testing with DCI Pattern
+
+## **Test Structure Requirements**
+
+### **Always Use Kotest Framework**
+- Import Kotest dependencies for all test files
+- Prefer DescribeSpec or BehaviorSpec for DCI pattern implementation
+- Use appropriate test style based on context:
+  ```kotlin
+  // ✅ DO: Use DescribeSpec for DCI pattern
+  class UserServiceTest : DescribeSpec({
+      describe("UserService") {
+          context("when creating a user") {
+              it("should return a valid user") {
+                  // test implementation
+              }
+          }
+      }
+  })
+  
+  // ✅ DO: Use BehaviorSpec for BDD style
+  class OrderProcessTest : BehaviorSpec({
+      given("an order with items") {
+          `when`("payment is processed") {
+              then("order should be confirmed") {
+                  // test implementation
+              }
+          }
+      }
+  })
+  ```
+
+### **DCI Pattern Structure**
+- **Describe**: Top-level grouping by class/feature
+- **Context**: Specific scenarios or conditions  
+- **It**: Individual test cases with clear expectations
+
+```kotlin
+// ✅ DO: Follow DCI hierarchy
+class PaymentServiceTest : DescribeSpec({
+    describe("PaymentService") {                    // Describe
+        context("with valid credit card") {         // Context
+            it("processes payment successfully") {   // It
+                // arrange
+                val payment = Payment(amount = 100.0)
+                val service = PaymentService()
+                
+                // act
+                val result = service.process(payment)
+                
+                // assert
+                result.shouldBeSuccess()
+                result.status shouldBe PaymentStatus.COMPLETED
+            }
+            
+            it("returns transaction ID") {
+                // test implementation
+            }
+        }
+        
+        context("with invalid credit card") {
+            it("throws PaymentException") {
+                shouldThrow<PaymentException> {
+                    // test implementation
+                }
+            }
+        }
+    }
+})
+```
+
+## **Modern Testing Practices**
+
+### **Data-Driven Testing**
+```kotlin
+// ✅ DO: Use withData for parameterized tests
+describe("Calculator") {
+    context("addition") {
+        withData(
+            nameFn = { "${it.a} + ${it.b} = ${it.expected}" },
+            AdditionTestCase(1, 2, 3),
+            AdditionTestCase(0, 0, 0),
+            AdditionTestCase(-1, 1, 0),
+            AdditionTestCase(Int.MAX_VALUE, 1, Int.MIN_VALUE)
+        ) { (a, b, expected) ->
+            Calculator.add(a, b) shouldBe expected
+        }
+    }
+}
+
+data class AdditionTestCase(val a: Int, val b: Int, val expected: Int)
+```
+
+### **Property-Based Testing**
+```kotlin
+// ✅ DO: Use property testing for invariants
+describe("String operations") {
+    it("concatenation length should equal sum of lengths") {
+        checkAll<String, String> { a, b ->
+            (a + b).length shouldBe a.length + b.length
+        }
+    }
+}
+```
+
+### **Soft Assertions**
+```kotlin
+// ✅ DO: Use assertSoftly for multiple related assertions
+it("validates user data completely") {
+    val user = createUser()
+    
+    assertSoftly(user) {
+        name shouldBe "John Doe"
+        email shouldContain "@"
+        email.shouldBeLowerCase()
+        age shouldBeInRange 18..100
+        roles.shouldContain("USER")
+        createdAt shouldBeBefore Instant.now()
+    }
+}
+```
+
+### **Asynchronous Testing**
+```kotlin
+// ✅ DO: Use eventually for async operations
+context("when message is sent") {
+    it("should be received within 5 seconds") {
+        sendMessage(message)
+        
+        eventually(5.seconds) {
+            messageQueue.size() shouldBe 1
+            messageQueue.peek().content shouldBe message.content
+        }
+    }
+}
+```
+
+## **Test Organization Best Practices**
+
+### **Test Naming**
+```kotlin
+// ✅ DO: Use descriptive test names
+describe("UserRepository") {
+    context("findById") {
+        context("when user exists") {
+            it("returns the user") { }
+        }
+        
+        context("when user does not exist") {
+            it("returns null") { }
+        }
+    }
+}
+
+// ❌ DON'T: Use vague test names
+describe("UserRepository") {
+    it("test1") { }
+    it("works") { }
+}
+```
+
+### **Test Lifecycle**
+```kotlin
+// ✅ DO: Use lifecycle hooks appropriately
+describe("DatabaseTest") {
+    lateinit var database: Database
+    
+    beforeSpec {
+        // Run once before all tests
+        database = Database.connect()
+    }
+    
+    beforeEach {
+        // Run before each test
+        database.beginTransaction()
+    }
+    
+    afterEach {
+        // Run after each test
+        database.rollbackTransaction()
+    }
+    
+    afterSpec {
+        // Run once after all tests
+        database.close()
+    }
+    
+    context("when saving data") {
+        it("persists to database") {
+            // test using database
+        }
+    }
+}
+```
+
+### **Test Isolation**
+```kotlin
+// ✅ DO: Isolate tests with proper setup
+describe("OrderService") {
+    context("process order") {
+        it("creates order with unique ID") {
+            // Each test should have its own setup
+            val orderService = OrderService()
+            val order1 = orderService.createOrder()
+            val order2 = orderService.createOrder()
+            
+            order1.id shouldNotBe order2.id
+        }
+    }
+}
+```
+
+## **Assertion Best Practices**
+
+### **Use Kotest Matchers**
+```kotlin
+// ✅ DO: Use specific Kotest matchers
+user.email.shouldBeEmail()
+file.shouldExist()
+list.shouldContainInOrder(1, 2, 3)
+map.shouldContainKey("key")
+result.shouldBeSuccess()
+value shouldBeInRange 1..10
+text shouldMatch Regex("[A-Z]+")
+
+// ❌ DON'T: Use generic assertions
+assertTrue(user.email.contains("@"))
+assertEquals(true, file.exists())
+```
+
+### **Custom Matchers**
+```kotlin
+// ✅ DO: Create custom matchers for domain objects
+fun User.shouldBeValid() = this should beValid()
+
+fun beValid() = object : Matcher<User> {
+    override fun test(value: User) = MatcherResult(
+        value.email.isNotBlank() && value.age >= 0,
+        { "User $value should be valid" },
+        { "User $value should not be valid" }
+    )
+}
+
+// Usage
+it("creates valid user") {
+    val user = User(name = "John", email = "john@example.com", age = 25)
+    user.shouldBeValid()
+}
+```
+
+## **Test Fixtures and Builders**
+
+### **Test Data Builders**
+```kotlin
+// ✅ DO: Use builders for test data
+object UserTestBuilder {
+    fun aUser(
+        id: Long = 1L,
+        name: String = "Test User",
+        email: String = "test@example.com",
+        roles: Set<Role> = setOf(Role.USER)
+    ) = User(id, name, email, roles)
+    
+    fun anAdmin() = aUser(
+        name = "Admin User",
+        email = "admin@example.com",
+        roles = setOf(Role.USER, Role.ADMIN)
+    )
+}
+
+// Usage in tests
+describe("UserService") {
+    it("finds admin users") {
+        val admin = UserTestBuilder.anAdmin()
+        service.save(admin)
+        
+        service.findAdmins() shouldContain admin
+    }
+}
+```
+
+### **Test Fixtures**
+```kotlin
+// ✅ DO: Use test fixtures for repeated setup
+class UserServiceTest : DescribeSpec({
+    val fixture = UserServiceFixture()
+    
+    describe("UserService") {
+        context("with existing users") {
+            beforeEach {
+                fixture.setupUsers()
+            }
+            
+            it("finds all users") {
+                val users = fixture.service.findAll()
+                users shouldHaveSize 3
+            }
+        }
+    }
+})
+
+class UserServiceFixture {
+    val service = UserService()
+    val testUsers = listOf(
+        UserTestBuilder.aUser(id = 1),
+        UserTestBuilder.aUser(id = 2),
+        UserTestBuilder.anAdmin()
+    )
+    
+    fun setupUsers() {
+        testUsers.forEach { service.save(it) }
+    }
+}
+```
+
+## **Error and Exception Testing**
+
+```kotlin
+// ✅ DO: Test exceptions with specific assertions
+describe("ValidationService") {
+    context("when validating invalid email") {
+        it("throws ValidationException with correct message") {
+            val exception = shouldThrow<ValidationException> {
+                ValidationService.validateEmail("invalid")
+            }
+            
+            exception.message shouldContain "Invalid email format"
+            exception.field shouldBe "email"
+        }
+    }
+}
+
+// ✅ DO: Use shouldNotThrowAny for success cases
+it("accepts valid email") {
+    shouldNotThrowAny {
+        ValidationService.validateEmail("valid@example.com")
+    }
+}
+```
+
+## **Mocking and Test Doubles**
+
+```kotlin
+// ✅ DO: Use test doubles appropriately
+describe("NotificationService") {
+    context("when sending email") {
+        it("uses email client to send") {
+            // Arrange
+            val emailClient = mockk<EmailClient>()
+            every { emailClient.send(any()) } returns EmailResult.SUCCESS
+            
+            val service = NotificationService(emailClient)
+            
+            // Act
+            service.notifyUser("user@example.com", "Hello")
+            
+            // Assert
+            verify(exactly = 1) {
+                emailClient.send(match {
+                    it.to == "user@example.com" && it.subject == "Hello"
+                })
+            }
+        }
+    }
+}
+```
+
+## **Test Tags and Conditional Execution**
+
+```kotlin
+// ✅ DO: Use tags for test categorization
+describe("IntegrationTests".config(tags = setOf(Integration))) {
+    it("connects to real database".config(tags = setOf(Slow))) {
+        // slow integration test
+    }
+}
+
+// ✅ DO: Use x-prefix for temporarily disabled tests
+xdescribe("Feature under development") {
+    it("new functionality") {
+        // temporarily disabled
+    }
+}
+
+// ✅ DO: Use config for conditional execution
+it("runs only on CI".config(enabled = { System.getenv("CI") == "true" })) {
+    // CI-only test
+}
+```
+
+## **Performance and Timeout Testing**
+
+```kotlin
+// ✅ DO: Set appropriate timeouts
+describe("PerformanceTest") {
+    it("completes within 2 seconds".config(timeout = 2.seconds)) {
+        // test that should complete quickly
+    }
+    
+    it("handles large dataset efficiently") {
+        val largeList = List(1_000_000) { it }
+        
+        val duration = measureTime {
+            processLargeDataset(largeList)
+        }
+        
+        duration shouldBeLessThan 5.seconds
+    }
+}
+```
+
+## **Common Patterns**
+
+### **Testing Coroutines**
+```kotlin
+// ✅ DO: Test coroutines properly
+describe("CoroutineService") {
+    it("processes async operation") {
+        runTest {
+            val result = service.fetchDataAsync()
+            result shouldBe expectedData
+        }
+    }
+}
+```
+
+### **Testing Collections**
+```kotlin
+// ✅ DO: Use collection-specific matchers
+it("filters users correctly") {
+    val users = listOf(
+        User("Alice", 25),
+        User("Bob", 30),
+        User("Charlie", 35)
+    )
+    
+    val adults = users.filter { it.age >= 30 }
+    
+    adults shouldHaveSize 2
+    adults.shouldContainExactlyInAnyOrder(
+        User("Bob", 30),
+        User("Charlie", 35)
+    )
+    adults.shouldNotContain(User("Alice", 25))
+}
+```
+
+## **Additional Guidelines**
+
+- Always use `shouldBe` instead of `assertEquals`
+- Prefer specific matchers over generic ones
+- Keep tests focused on single behavior
+- Use descriptive variable names in tests
+- Avoid complex logic in tests
+- Don't test implementation details
+- Focus on behavior and outcomes
+- Use test doubles sparingly and appropriately
+- Keep test data realistic but minimal
+- Ensure tests are deterministic and repeatable
