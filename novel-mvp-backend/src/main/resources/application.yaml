@@ -4,3 +4,17 @@ ktor:
             - com.novel.ApplicationKt.module
     deployment:
         port: 8080
+    development: true  # Set to false for production
+
+# JWT configuration
+jwt:
+    domain: "https://jwt-provider-domain/"
+    audience: "jwt-audience"
+    realm: "ktor sample app"
+    secret: "your-256-bit-secret-your-256-bit-secret" # Only use for development
+
+# OAuth configuration
+oauth:
+    google:
+        clientId: "$GOOGLE_CLIENT_ID:your-google-client-id"
+        clientSecret: "$GOOGLE_CLIENT_SECRET:your-google-client-secret"

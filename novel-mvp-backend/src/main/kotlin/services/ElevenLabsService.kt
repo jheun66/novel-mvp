@@ -61,23 +61,11 @@ data class EmotionParameters(
  * ElevenLabs integration for high-quality TTS with emotion support
  */
 class ElevenLabsService(
-    private val config: ElevenLabsConfig
+    private val config: ElevenLabsConfig,
+    private val httpClient: HttpClient
 ) {
     private val logger = LoggerFactory.getLogger(ElevenLabsService::class.java)
-    
-    private val httpClient = HttpClient(CIO) {
-        install(ContentNegotiation) {
-            json(Json {
-                ignoreUnknownKeys = true
-                isLenient = true
-                encodeDefaults = true
-            })
-        }
-        engine {
-            requestTimeout = 30_000 // 30 seconds
-        }
-    }
-    
+
     // 감정별 미리 정의된 목소리 설정
     private val emotionVoiceSettings = mapOf(
         "HAPPY" to VoiceSettings(

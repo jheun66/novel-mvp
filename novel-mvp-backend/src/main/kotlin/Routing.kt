@@ -8,10 +8,12 @@ import com.novel.services.ElevenLabsService
 import com.novel.services.ElevenLabsConfig
 import com.novel.services.NovelWebSocketService
 import io.github.cdimascio.dotenv.dotenv
+import io.ktor.client.HttpClient
 import io.ktor.server.application.*
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.*
 import io.ktor.server.websocket.*
+import org.koin.ktor.ext.inject
 import org.slf4j.LoggerFactory
 
 fun Application.configureRouting() {
@@ -36,10 +38,12 @@ fun Application.configureRouting() {
         ?: System.getenv("GEMINI_API_KEY")
         ?: throw IllegalStateException("GEMINI_API_KEY not set in .env file or environment variables")
 
+    val httpClient by inject<HttpClient>()
+
     // Initialize services
     val communicator = SimpleAgentCommunicator()
     val elevenLabsConfig = ElevenLabsConfig(apiKey = elevenLabsApiKey)
-    val speechService = ElevenLabsService(elevenLabsConfig)
+    val speechService = ElevenLabsService(elevenLabsConfig, httpClient)
 
     // Initialize agents
     val conversationAgent = ConversationAgent(openAiApiKey, communicator)
