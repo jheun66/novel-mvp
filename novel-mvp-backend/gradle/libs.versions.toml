@@ -10,6 +10,11 @@ google-genai-version = "1.7.0"
 kotest-version = "5.9.1"
 mockk-version = "1.13.11"
 koin-version = "3.5.6"
+postgres-version = "42.7.5"
+h2-version = "2.3.232"
+exposed-version = "0.61.0"
+hikari-cp-version = "6.3.0"
+flyway-version = "11.9.0"
 
 [libraries]
 koin-ktor = { module = "io.insert-koin:koin-ktor", version.ref = "koin-version" }
@@ -21,6 +26,7 @@ ktor-server-netty = { module = "io.ktor:ktor-server-netty", version.ref = "ktor-
 ktor-server-websockets = { module = "io.ktor:ktor-server-websockets", version.ref = "ktor-version" }
 ktor-server-auth = { module = "io.ktor:ktor-server-auth", version.ref = "ktor-version" }
 ktor-server-auth-jwt = { module = "io.ktor:ktor-server-auth-jwt", version.ref = "ktor-version" }
+ktor-server-call-logging = { module = "io.ktor:ktor-server-call-logging", version.ref = "ktor-version" }
 ktor-serialization-kotlinx-json = { module = "io.ktor:ktor-serialization-kotlinx-json", version.ref = "ktor-version" }
 ktor-client-core = { module = "io.ktor:ktor-client-core", version.ref = "ktor-version" }
 ktor-client-cio = { module = "io.ktor:ktor-client-cio", version.ref = "ktor-version" }
@@ -35,6 +41,14 @@ kotlin-test-junit = { module = "org.jetbrains.kotlin:kotlin-test-junit", version
 openai-client = { module = "com.aallam.openai:openai-client", version.ref = "openai-client-version" }
 google-genai = { module = "com.google.genai:google-genai", version.ref = "google-genai-version" }
 dotenv-kotlin = { module = "io.github.cdimascio:dotenv-kotlin", version.ref = "dotenv-version" }
+postgresql = { module = "org.postgresql:postgresql", version.ref = "postgres-version" }
+h2 = { module = "com.h2database:h2", version.ref = "h2-version" }
+exposed-core = { module = "org.jetbrains.exposed:exposed-core", version.ref = "exposed-version" }
+exposed-jdbc = { module = "org.jetbrains.exposed:exposed-jdbc", version.ref = "exposed-version" }
+exposed-dao = { module = "org.jetbrains.exposed:exposed-dao", version.ref = "exposed-version" }
+exposed-kotlin-datetime = { module = "org.jetbrains.exposed:exposed-kotlin-datetime", version.ref = "exposed-version" }
+hikaricp = { module = "com.zaxxer:HikariCP", version.ref = "hikari-cp-version" }
+flyway-database-postgresql = { module = "org.flywaydb:flyway-database-postgresql", version.ref = "flyway-version" }
 kotest-runner-junit5 = { module = "io.kotest:kotest-runner-junit5", version.ref = "kotest-version" }
 kotest-assertions-core = { module = "io.kotest:kotest-assertions-core", version.ref = "kotest-version" }
 kotest-property = { module = "io.kotest:kotest-property", version.ref = "kotest-version" }

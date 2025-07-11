@@ -9,16 +9,10 @@ import io.ktor.server.auth.*
 import io.ktor.server.auth.jwt.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
-import io.ktor.util.AttributeKey
 import kotlinx.serialization.Serializable
 import org.koin.ktor.ext.inject
+import org.slf4j.MDC
 import java.time.Instant
-
-val CorrelationIdKey = AttributeKey<String>("CorrelationId")
-
-// Extension function to get current correlation ID
-fun ApplicationCall.correlationId(): String =
-    attributes.getOrNull(CorrelationIdKey) ?: "N/A"
 
 @Serializable
 data class ErrorResponse(
@@ -79,7 +73,7 @@ fun Application.configureSecurity() {
             verifier { jwtService.verifier }
             validate { credential -> jwtService.validateAccessToken(credential.payload) }
             challenge { _, _ ->
-                val correlationId = call.correlationId()
+                val correlationId = MDC.get("correlationId")
 
                 val errorResponse = ErrorResponse(
                     error = ErrorDetails(

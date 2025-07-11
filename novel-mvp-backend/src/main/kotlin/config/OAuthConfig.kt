@@ -16,6 +16,7 @@ data class OAuthConfig(
         fun fromApplication(application: Application): OAuthConfig {
             val config = application.environment.config
             val isDevelopment = config.property("ktor.development").getString().toBoolean()
+
             // Load environment variables from .env file
             val dotenv = dotenv {
                 ignoreIfMissing = true // 개발 환경에서 .env 파일이 없어도 에러 발생하지 않음
