@@ -16,37 +16,40 @@ import io.mockk.*
 import kotlinx.coroutines.test.runTest
 
 class StoryGenerationAgentTest : DescribeSpec({
-    
+
     describe("StoryGenerationAgent") {
         lateinit var agent: StoryGenerationAgent
         lateinit var geminiClient: Client
         lateinit var mockModels: Models
         lateinit var communicator: AgentCommunicator
-        
+
         beforeEach {
             geminiClient = mockk<Client>()
             mockModels = mockk<Models>()
             communicator = mockk<AgentCommunicator>()
-            
-            // Gemini Client Builder 모킹
+
+            // Client.builder() 체인을 모킹
             mockkStatic(Client::class)
             val mockBuilder = mockk<Client.Builder>()
             every { Client.builder() } returns mockBuilder
             every { mockBuilder.apiKey(any()) } returns mockBuilder
             every { mockBuilder.build() } returns geminiClient
-            
-            // models 속성 모킹
-            every { geminiClient.models } returns mockModels
-            
+
+            // final 필드인 models를 우회하는 방법
+            // 1. Reflection 사용
+            val modelsField = Client::class.java.getDeclaredField("models")
+            modelsField.isAccessible = true
+            modelsField.set(geminiClient, mockModels)
+
             agent = StoryGenerationAgent("test-api-key", communicator)
         }
-        
+
         afterEach {
             unmockkAll()
         }
-        
+
         context("when generating story") {
-            
+
             context("with happy conversation context") {
                 it("should generate a heartwarming story") {
                     // Arrange
@@ -59,14 +62,14 @@ class StoryGenerationAgentTest : DescribeSpec({
                         sentiment = "긍정적",
                         emotionalProgression = "점점 더 행복해지는 감정"
                     )
-                    
+
                     val input = StoryGenerationInput(
                         conversationContext = "오늘은 엄마의 생일이었어요. 가족들이 모두 모여 깜짝 파티를 준비했습니다.",
                         emotionAnalysis = emotionAnalysis,
                         userId = "user123",
                         conversationHighlights = listOf("엄마의 생일", "깜짝 파티", "가족 모임")
                     )
-                    
+
                     val mockStoryResponse = """
                         제목: 엄마의 특별한 하루
                         
@@ -88,18 +91,18 @@ class StoryGenerationAgentTest : DescribeSpec({
                         - 가족 모두가 함께 "생일 축하합니다"를 부르는 순간
                         - 엄마가 감동의 눈물을 흘리시는 순간
                     """.trimIndent()
-                    
+
                     val mockResponse = mockk<GenerateContentResponse>()
                     every { mockResponse.text() } returns mockStoryResponse
-                    
-                    coEvery { 
-                        mockModels.generateContent(any(), any<String>(), any()) 
+
+                    coEvery {
+                        mockModels.generateContent(any(), any<String>(), any())
                     } returns mockResponse
-                    
+
                     // Act
                     runTest {
                         val output = agent.process(input)
-                        
+
                         // Assert
                         assertSoftly(output) {
                             title shouldBe "엄마의 특별한 하루"
@@ -115,7 +118,7 @@ class StoryGenerationAgentTest : DescribeSpec({
                     }
                 }
             }
-            
+
             context("with nostalgic conversation context") {
                 it("should generate a reflective story") {
                     // Arrange
@@ -127,13 +130,13 @@ class StoryGenerationAgentTest : DescribeSpec({
                         keywords = listOf("졸업", "친구", "추억"),
                         sentiment = "복합적"
                     )
-                    
+
                     val input = StoryGenerationInput(
                         conversationContext = "고등학교 졸업식 날, 친구들과 마지막 사진을 찍었어요.",
                         emotionAnalysis = emotionAnalysis,
                         userId = "user123"
                     )
-                    
+
                     val mockStoryResponse = """
                         제목: 마지막 교실의 햇살
                         
@@ -154,18 +157,18 @@ class StoryGenerationAgentTest : DescribeSpec({
                         - 친구들과 마지막 포옹을 나누는 순간
                         - 교문을 나서며 뒤돌아보는 순간
                     """.trimIndent()
-                    
+
                     val mockResponse = mockk<GenerateContentResponse>()
                     every { mockResponse.text() } returns mockStoryResponse
-                    
-                    coEvery { 
-                        mockModels.generateContent(any(), any<String>(), any()) 
+
+                    coEvery {
+                        mockModels.generateContent(any(), any<String>(), any())
                     } returns mockResponse
-                    
+
                     // Act
                     runTest {
                         val output = agent.process(input)
-                        
+
                         // Assert
                         assertSoftly(output) {
                             title shouldBe "마지막 교실의 햇살"
@@ -179,9 +182,9 @@ class StoryGenerationAgentTest : DescribeSpec({
                 }
             }
         }
-        
+
         context("when parsing story response") {
-            
+
             context("with malformed response") {
                 it("should handle gracefully and return fallback values") {
                     // Arrange
@@ -193,24 +196,24 @@ class StoryGenerationAgentTest : DescribeSpec({
                         keywords = emptyList(),
                         sentiment = "긍정적"
                     )
-                    
+
                     val input = StoryGenerationInput(
                         conversationContext = "테스트 컨텍스트",
                         emotionAnalysis = emotionAnalysis,
                         userId = "user123"
                     )
-                    
+
                     val mockResponse = mockk<GenerateContentResponse>()
                     every { mockResponse.text() } returns "This is not a properly formatted story"
-                    
-                    coEvery { 
-                        mockModels.generateContent(any(), any<String>(), any()) 
+
+                    coEvery {
+                        mockModels.generateContent(any(), any<String>(), any())
                     } returns mockResponse
-                    
+
                     // Act
                     runTest {
                         val output = agent.process(input)
-                        
+
                         // Assert
                         assertSoftly(output) {
                             title shouldBe "무제"
@@ -223,7 +226,7 @@ class StoryGenerationAgentTest : DescribeSpec({
                     }
                 }
             }
-            
+
             context("with partial response") {
                 it("should extract available parts") {
                     // Arrange
@@ -235,13 +238,13 @@ class StoryGenerationAgentTest : DescribeSpec({
                         keywords = emptyList(),
                         sentiment = "평온한"
                     )
-                    
+
                     val input = StoryGenerationInput(
                         conversationContext = "조용한 오후의 산책",
                         emotionAnalysis = emotionAnalysis,
                         userId = "user123"
                     )
-                    
+
                     val mockStoryResponse = """
                         제목: 오후의 산책
                         
@@ -251,18 +254,18 @@ class StoryGenerationAgentTest : DescribeSpec({
                         
                         ---
                     """.trimIndent()
-                    
+
                     val mockResponse = mockk<GenerateContentResponse>()
                     every { mockResponse.text() } returns mockStoryResponse
-                    
-                    coEvery { 
-                        mockModels.generateContent(any(), any<String>(), any()) 
+
+                    coEvery {
+                        mockModels.generateContent(any(), any<String>(), any())
                     } returns mockResponse
-                    
+
                     // Act
                     runTest {
                         val output = agent.process(input)
-                        
+
                         // Assert
                         assertSoftly(output) {
                             title shouldBe "오후의 산책"
@@ -275,7 +278,7 @@ class StoryGenerationAgentTest : DescribeSpec({
                 }
             }
         }
-        
+
         context("when API fails") {
             it("should throw RuntimeException with appropriate message") {
                 // Arrange
@@ -287,17 +290,17 @@ class StoryGenerationAgentTest : DescribeSpec({
                     keywords = emptyList(),
                     sentiment = "긍정적"
                 )
-                
+
                 val input = StoryGenerationInput(
                     conversationContext = "테스트",
                     emotionAnalysis = emotionAnalysis,
                     userId = "user123"
                 )
-                
-                coEvery { 
-                    mockModels.generateContent(any(), any<String>(), any()) 
+
+                coEvery {
+                    mockModels.generateContent(any(), any<String>(), any())
                 } throws Exception("API error")
-                
+
                 // Act & Assert
                 runTest {
                     val exception = shouldThrow<RuntimeException> {
@@ -306,7 +309,7 @@ class StoryGenerationAgentTest : DescribeSpec({
                     exception.message shouldContain "Story generation failed"
                 }
             }
-            
+
             it("should handle null response gracefully") {
                 // Arrange
                 val emotionAnalysis = EmotionAnalysisOutput(
@@ -317,30 +320,30 @@ class StoryGenerationAgentTest : DescribeSpec({
                     keywords = emptyList(),
                     sentiment = "긍정적"
                 )
-                
+
                 val input = StoryGenerationInput(
                     conversationContext = "테스트",
                     emotionAnalysis = emotionAnalysis,
                     userId = "user123"
                 )
-                
+
                 val mockResponse = mockk<GenerateContentResponse>()
                 every { mockResponse.text() } returns null
-                
-                coEvery { 
-                    mockModels.generateContent(any(), any<String>(), any()) 
+
+                coEvery {
+                    mockModels.generateContent(any(), any<String>(), any())
                 } returns mockResponse
-                
+
                 // Act & Assert
                 runTest {
                     val exception = shouldThrow<RuntimeException> {
                         agent.process(input)
                     }
-                    exception.message shouldBe "Failed to generate story"
+                    exception.message shouldBe "Story generation failed: Failed to generate story"
                 }
             }
         }
-        
+
         context("when building prompts") {
             it("should properly translate emotions to Korean") {
                 // Arrange
@@ -355,7 +358,7 @@ class StoryGenerationAgentTest : DescribeSpec({
                     "NOSTALGIC" to "그리움",
                     "UNKNOWN" to "중립"
                 )
-                
+
                 testCases.forEach { (emotion, expectedKorean) ->
                     val emotionAnalysis = EmotionAnalysisOutput(
                         primaryEmotion = emotion,
@@ -365,24 +368,24 @@ class StoryGenerationAgentTest : DescribeSpec({
                         keywords = emptyList(),
                         sentiment = "중립적"
                     )
-                    
+
                     val input = StoryGenerationInput(
                         conversationContext = "테스트",
                         emotionAnalysis = emotionAnalysis,
                         userId = "user123"
                     )
-                    
+
                     val mockResponse = mockk<GenerateContentResponse>()
                     every { mockResponse.text() } returns "제목: 테스트\n---\n스토리\n---"
-                    
-                    coEvery { 
-                        mockModels.generateContent(any(), any<String>(), any()) 
+
+                    coEvery {
+                        mockModels.generateContent(any(), any<String>(), any())
                     } returns mockResponse
-                    
+
                     // Act
                     runTest {
                         agent.process(input)
-                        
+
                         // Assert
                         coVerify {
                             mockModels.generateContent(
@@ -398,4 +401,4 @@ class StoryGenerationAgentTest : DescribeSpec({
             }
         }
     }
-}) 
+})

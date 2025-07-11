@@ -121,8 +121,8 @@ class EmotionAnalysisAgent(
             
             EmotionAnalysisOutput(
                 primaryEmotion = json["primaryEmotion"]?.jsonPrimitive?.content ?: "NEUTRAL",
-                confidence = json["confidence"]?.jsonPrimitive?.float ?: 0.5f,
-                emotionalIntensity = json["intensity"]?.jsonPrimitive?.float ?: 0.5f,
+                confidence = json["confidence"]?.jsonPrimitive?.float?.coerceIn(0f, 1f) ?: 0.5f,
+                emotionalIntensity = json["intensity"]?.jsonPrimitive?.float?.coerceIn(0f, 1f) ?: 0.5f,
                 subEmotions = json["subEmotions"]?.jsonArray?.map { 
                     it.jsonPrimitive.content 
                 } ?: emptyList(),

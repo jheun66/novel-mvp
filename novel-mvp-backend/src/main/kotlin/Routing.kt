@@ -63,5 +63,9 @@ fun Application.configureRouting() {
         get("/") {
             call.respondText("Novel MVP API is running!")
         }
+        
+        get("/health") {
+            call.respondText("OK")
+        }
     }
 }

@@ -5,6 +5,7 @@ import com.aallam.openai.api.chat.ChatChoice
 import com.aallam.openai.api.chat.ChatMessage
 import com.aallam.openai.api.core.Role
 import com.aallam.openai.client.OpenAI
+import com.aallam.openai.client.OpenAIConfig
 import com.novel.agents.base.AgentCommunicator
 import io.kotest.assertions.assertSoftly
 import io.kotest.core.spec.style.DescribeSpec
@@ -12,35 +13,38 @@ import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.collections.shouldHaveSize
 import io.kotest.matchers.collections.shouldNotBeEmpty
 import io.kotest.matchers.floats.shouldBeGreaterThan
+import io.kotest.matchers.floats.shouldBeGreaterThanOrEqual
 import io.kotest.matchers.floats.shouldBeLessThanOrEqual
 import io.kotest.matchers.shouldBe
 import io.mockk.*
 import kotlinx.coroutines.test.runTest
 
 class EmotionAnalysisAgentTest : DescribeSpec({
-    
+
     describe("EmotionAnalysisAgent") {
         lateinit var agent: EmotionAnalysisAgent
         lateinit var openAI: OpenAI
         lateinit var communicator: AgentCommunicator
-        
+
         beforeEach {
             openAI = mockk<OpenAI>()
             communicator = mockk<AgentCommunicator>()
-            
-            // OpenAI 생성자를 모킹
-            mockkConstructor(OpenAI::class)
-            every { anyConstructed<OpenAI>() } returns openAI
-            
+
+            // OpenAI factory 함수를 모킹
+            mockkStatic("com.aallam.openai.client.OpenAIKt")
+            every { OpenAI(any<OpenAIConfig>()) } returns openAI
+            every { OpenAI(any(), any(), any(), any(), any(), any(), any(), any(), any()) } returns openAI
+
+
             agent = EmotionAnalysisAgent("test-api-key", communicator)
         }
-        
+
         afterEach {
             unmockkAll()
         }
-        
+
         context("when analyzing emotions") {
-            
+
             context("with happy text") {
                 it("should detect happiness with high confidence") {
                     // Arrange
@@ -48,7 +52,7 @@ class EmotionAnalysisAgentTest : DescribeSpec({
                         text = "오늘 정말 행복한 하루였어요! 오랜만에 가족들과 함께 시간을 보냈거든요.",
                         context = "사용자가 가족 모임에 대해 이야기하고 있음"
                     )
-                    
+
                     val mockJsonResponse = """
                         {
                             "primaryEmotion": "HAPPY",
@@ -64,12 +68,12 @@ class EmotionAnalysisAgentTest : DescribeSpec({
                             ]
                         }
                     """.trimIndent()
-                    
+
                     val mockMessage = ChatMessage(
                         role = Role.Assistant,
                         content = mockJsonResponse
                     )
-                    
+
                     val mockCompletion = mockk<ChatCompletion> {
                         every { choices } returns listOf(
                             mockk<ChatChoice> {
@@ -77,13 +81,13 @@ class EmotionAnalysisAgentTest : DescribeSpec({
                             }
                         )
                     }
-                    
+
                     coEvery { openAI.chatCompletion(any()) } returns mockCompletion
-                    
+
                     // Act
                     runTest {
                         val output = agent.process(input)
-                        
+
                         // Assert
                         assertSoftly(output) {
                             primaryEmotion shouldBe "HAPPY"
@@ -100,14 +104,14 @@ class EmotionAnalysisAgentTest : DescribeSpec({
                     }
                 }
             }
-            
+
             context("with sad text") {
                 it("should detect sadness appropriately") {
                     // Arrange
                     val input = EmotionAnalysisInput(
                         text = "오늘은 정말 힘든 하루였어요. 아무것도 하고 싶지 않네요."
                     )
-                    
+
                     val mockJsonResponse = """
                         {
                             "primaryEmotion": "SAD",
@@ -119,12 +123,12 @@ class EmotionAnalysisAgentTest : DescribeSpec({
                             "emotionalProgression": "점차 무기력해지는 감정 변화"
                         }
                     """.trimIndent()
-                    
+
                     val mockMessage = ChatMessage(
                         role = Role.Assistant,
                         content = mockJsonResponse
                     )
-                    
+
                     val mockCompletion = mockk<ChatCompletion> {
                         every { choices } returns listOf(
                             mockk<ChatChoice> {
@@ -132,13 +136,13 @@ class EmotionAnalysisAgentTest : DescribeSpec({
                             }
                         )
                     }
-                    
+
                     coEvery { openAI.chatCompletion(any()) } returns mockCompletion
-                    
+
                     // Act
                     runTest {
                         val output = agent.process(input)
-                        
+
                         // Assert
                         assertSoftly(output) {
                             primaryEmotion shouldBe "SAD"
@@ -150,7 +154,7 @@ class EmotionAnalysisAgentTest : DescribeSpec({
                     }
                 }
             }
-            
+
             context("with complex emotions") {
                 it("should detect mixed emotions") {
                     // Arrange
@@ -158,7 +162,7 @@ class EmotionAnalysisAgentTest : DescribeSpec({
                         text = "졸업식이 끝났어요. 기쁘면서도 아쉬워요. 친구들과 헤어져야 한다니...",
                         previousEmotions = listOf("HAPPY", "NOSTALGIC")
                     )
-                    
+
                     val mockJsonResponse = """
                         {
                             "primaryEmotion": "NOSTALGIC",
@@ -175,12 +179,12 @@ class EmotionAnalysisAgentTest : DescribeSpec({
                             ]
                         }
                     """.trimIndent()
-                    
+
                     val mockMessage = ChatMessage(
                         role = Role.Assistant,
                         content = mockJsonResponse
                     )
-                    
+
                     val mockCompletion = mockk<ChatCompletion> {
                         every { choices } returns listOf(
                             mockk<ChatChoice> {
@@ -188,13 +192,13 @@ class EmotionAnalysisAgentTest : DescribeSpec({
                             }
                         )
                     }
-                    
+
                     coEvery { openAI.chatCompletion(any()) } returns mockCompletion
-                    
+
                     // Act
                     runTest {
                         val output = agent.process(input)
-                        
+
                         // Assert
                         assertSoftly(output) {
                             primaryEmotion shouldBe "NOSTALGIC"
@@ -209,19 +213,19 @@ class EmotionAnalysisAgentTest : DescribeSpec({
                 }
             }
         }
-        
+
         context("when parsing JSON response") {
-            
+
             context("with invalid JSON") {
                 it("should return default values gracefully") {
                     // Arrange
                     val input = EmotionAnalysisInput(text = "테스트 텍스트")
-                    
+
                     val mockMessage = ChatMessage(
                         role = Role.Assistant,
                         content = "This is not a valid JSON response"
                     )
-                    
+
                     val mockCompletion = mockk<ChatCompletion> {
                         every { choices } returns listOf(
                             mockk<ChatChoice> {
@@ -229,13 +233,13 @@ class EmotionAnalysisAgentTest : DescribeSpec({
                             }
                         )
                     }
-                    
+
                     coEvery { openAI.chatCompletion(any()) } returns mockCompletion
-                    
+
                     // Act
                     runTest {
                         val output = agent.process(input)
-                        
+
                         // Assert
                         assertSoftly(output) {
                             primaryEmotion shouldBe "NEUTRAL"
@@ -248,12 +252,12 @@ class EmotionAnalysisAgentTest : DescribeSpec({
                     }
                 }
             }
-            
+
             context("with partial JSON") {
                 it("should parse available fields and use defaults for missing ones") {
                     // Arrange
                     val input = EmotionAnalysisInput(text = "부분적인 감정 분석")
-                    
+
                     val mockJsonResponse = """
                         {
                             "primaryEmotion": "CALM",
@@ -261,12 +265,12 @@ class EmotionAnalysisAgentTest : DescribeSpec({
                             "sentiment": "긍정적"
                         }
                     """.trimIndent()
-                    
+
                     val mockMessage = ChatMessage(
                         role = Role.Assistant,
                         content = mockJsonResponse
                     )
-                    
+
                     val mockCompletion = mockk<ChatCompletion> {
                         every { choices } returns listOf(
                             mockk<ChatChoice> {
@@ -274,13 +278,13 @@ class EmotionAnalysisAgentTest : DescribeSpec({
                             }
                         )
                     }
-                    
+
                     coEvery { openAI.chatCompletion(any()) } returns mockCompletion
-                    
+
                     // Act
                     runTest {
                         val output = agent.process(input)
-                        
+
                         // Assert
                         assertSoftly(output) {
                             primaryEmotion shouldBe "CALM"
@@ -293,7 +297,7 @@ class EmotionAnalysisAgentTest : DescribeSpec({
                 }
             }
         }
-        
+
         context("when building prompts") {
             it("should include context when provided") {
                 // Arrange
@@ -302,7 +306,7 @@ class EmotionAnalysisAgentTest : DescribeSpec({
                     context = "학생이 중요한 시험 결과를 기다리고 있었음",
                     previousEmotions = listOf("ANXIOUS", "EXCITED")
                 )
-                
+
                 val mockJsonResponse = """
                     {
                         "primaryEmotion": "ANXIOUS",
@@ -313,12 +317,12 @@ class EmotionAnalysisAgentTest : DescribeSpec({
                         "sentiment": "긴장된"
                     }
                 """.trimIndent()
-                
+
                 val mockMessage = ChatMessage(
                     role = Role.Assistant,
                     content = mockJsonResponse
                 )
-                
+
                 val mockCompletion = mockk<ChatCompletion> {
                     every { choices } returns listOf(
                         mockk<ChatChoice> {
@@ -326,30 +330,30 @@ class EmotionAnalysisAgentTest : DescribeSpec({
                         }
                     )
                 }
-                
+
                 coEvery { openAI.chatCompletion(any()) } returns mockCompletion
-                
+
                 // Act
                 runTest {
                     val output = agent.process(input)
-                    
+
                     // Assert
                     coVerify {
                         openAI.chatCompletion(match { request ->
                             val userMessage = request.messages.firstOrNull { it.role == Role.User }
                             userMessage?.content?.contains("맥락: 학생이 중요한 시험 결과를 기다리고 있었음") == true &&
-                            userMessage.content?.contains("이전 감정들: ANXIOUS, EXCITED") == true
+                                    userMessage.content?.contains("이전 감정들: ANXIOUS, EXCITED") == true
                         })
                     }
                 }
             }
         }
-        
+
         context("when emotion values are out of range") {
             it("should handle edge cases gracefully") {
                 // Arrange
                 val input = EmotionAnalysisInput(text = "엣지 케이스 테스트")
-                
+
                 val mockJsonResponse = """
                     {
                         "primaryEmotion": "HAPPY",
@@ -360,12 +364,12 @@ class EmotionAnalysisAgentTest : DescribeSpec({
                         "sentiment": "긍정적"
                     }
                 """.trimIndent()
-                
+
                 val mockMessage = ChatMessage(
                     role = Role.Assistant,
                     content = mockJsonResponse
                 )
-                
+
                 val mockCompletion = mockk<ChatCompletion> {
                     every { choices } returns listOf(
                         mockk<ChatChoice> {
@@ -373,23 +377,23 @@ class EmotionAnalysisAgentTest : DescribeSpec({
                         }
                     )
                 }
-                
+
                 coEvery { openAI.chatCompletion(any()) } returns mockCompletion
-                
+
                 // Act
                 runTest {
                     val output = agent.process(input)
-                    
+
                     // Assert
                     assertSoftly(output) {
                         // 값들이 유효한 범위 내에 있어야 함
                         confidence shouldBeLessThanOrEqual 1.0f
-                        confidence shouldBeGreaterThan 0.0f
-                        emotionalIntensity shouldBeGreaterThan 0.0f
+                        confidence shouldBeGreaterThanOrEqual 0.0f
+                        emotionalIntensity shouldBeGreaterThanOrEqual 0.0f
                         emotionalIntensity shouldBeLessThanOrEqual 1.0f
                     }
                 }
             }
         }
     }
-}) 
+})

@@ -2,12 +2,12 @@ package com.novel.services
 
 import com.novel.agents.*
 import com.novel.agents.base.AgentCommunicator
+import com.novel.globalJson
 import io.ktor.websocket.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
 import java.util.*
 
@@ -18,25 +18,25 @@ sealed class WebSocketMessage {
         val audioData: String,  // Base64 encoded audio
         val format: String = "pcm16"
     ) : WebSocketMessage()
-    
+
     @Serializable
     data class TextInput(
         val text: String,
         val conversationId: String = UUID.randomUUID().toString()
     ) : WebSocketMessage()
-    
+
     @Serializable
     data class GenerateStory(
         val conversationId: String
     ) : WebSocketMessage()
-    
+
     @Serializable
     data class AudioOutput(
         val audioData: String,  // Base64 encoded audio
         val format: String = "pcm16",
         val emotion: String? = null
     ) : WebSocketMessage()
-    
+
     @Serializable
     data class TextOutput(
         val text: String,
@@ -44,7 +44,7 @@ sealed class WebSocketMessage {
         val suggestedQuestions: List<String> = emptyList(),
         val readyForStory: Boolean = false
     ) : WebSocketMessage()
-    
+
     @Serializable
     data class StoryOutput(
         val title: String,
@@ -53,7 +53,7 @@ sealed class WebSocketMessage {
         val genre: String,
         val emotionalArc: String
     ) : WebSocketMessage()
-    
+
     @Serializable
     data class Error(
         val message: String,
@@ -69,56 +69,71 @@ class NovelWebSocketService(
     private val communicator: AgentCommunicator
 ) {
     private val logger = LoggerFactory.getLogger(NovelWebSocketService::class.java)
-    private val json = Json { 
-        ignoreUnknownKeys = true
-        isLenient = true
-    }
     
     private val conversationContexts = mutableMapOf<String, ConversationContext>()
     
     suspend fun handleWebSocketSession(session: DefaultWebSocketSession) {
+        // TODO : 임시로 유저 분류
         val userId = "user-${UUID.randomUUID()}"
         logger.info("WebSocket connected: $userId")
         
+        // Create channels for bidirectional communication
+        val incoming = Channel<WebSocketMessage>(Channel.BUFFERED)
+        val outgoing = Channel<WebSocketMessage>(Channel.BUFFERED)
+        
         try {
-            // Create channels for bidirectional communication
-            val incoming = Channel<WebSocketMessage>(Channel.BUFFERED)
-            val outgoing = Channel<WebSocketMessage>(Channel.BUFFERED)
-            
-            // Launch coroutines for handling messages
             coroutineScope {
-                launch { handleIncomingMessages(incoming, outgoing, userId) }
-                launch { sendOutgoingMessages(session, outgoing) }
-            }
-            
-            // Process incoming WebSocket frames
-            for (frame in session.incoming) {
-                when (frame) {
-                    is Frame.Text -> {
-                        try {
-                            val text = frame.readText()
-                            val message = json.decodeFromString<WebSocketMessage>(text)
-                            incoming.send(message)
-                        } catch (e: Exception) {
-                            logger.error("Failed to parse message", e)
-                            outgoing.send(WebSocketMessage.Error("Invalid message format"))
+                // Launch coroutine for processing incoming WebSocket frames
+                launch {
+                    try {
+                        for (frame in session.incoming) {
+                            when (frame) {
+                                is Frame.Text -> {
+                                    try {
+                                        val text = frame.readText()
+                                        val message = globalJson.decodeFromString<WebSocketMessage>(text)
+                                        incoming.send(message)
+                                    } catch (e: Exception) {
+                                        logger.error("Failed to parse message", e)
+                                        outgoing.send(WebSocketMessage.Error("Invalid message format"))
+                                    }
+                                }
+                                is Frame.Binary -> {
+                                    // Handle binary audio data directly
+                                    val audioData = frame.readBytes()
+                                    incoming.send(WebSocketMessage.AudioInput(
+                                        audioData = Base64.getEncoder().encodeToString(audioData),
+                                        format = "pcm16"
+                                    ))
+                                }
+                                else -> {}
+                            }
                         }
+                    } finally {
+                        incoming.close()
                     }
-                    is Frame.Binary -> {
-                        // Handle binary audio data directly
-                        val audioData = frame.readBytes()
-                        incoming.send(WebSocketMessage.AudioInput(
-                            audioData = Base64.getEncoder().encodeToString(audioData),
-                            format = "pcm16"
-                        ))
+                }
+                
+                // Launch coroutine for handling incoming messages
+                launch { 
+                    try {
+                        handleIncomingMessages(incoming, outgoing, userId) 
+                    } finally {
+                        outgoing.close()
                     }
-                    else -> {}
+                }
+                
+                // Launch coroutine for sending outgoing messages
+                launch { 
+                    sendOutgoingMessages(session, outgoing) 
                 }
             }
         } catch (e: Exception) {
-            logger.error("WebSocket error", e)
+            logger.error("WebSocket error: ${e.message}", e)
         } finally {
             logger.info("WebSocket disconnected: $userId")
+            // Clean up any remaining conversation contexts for this user
+            conversationContexts.entries.removeIf { it.value.userId == userId }
         }
     }
     
@@ -127,24 +142,34 @@ class NovelWebSocketService(
         outgoing: Channel<WebSocketMessage>,
         userId: String
     ) {
-        for (message in incoming) {
-            try {
-                when (message) {
-                    is WebSocketMessage.AudioInput -> {
-                        handleAudioInput(message, outgoing, userId)
+        try {
+            for (message in incoming) {
+                try {
+                    when (message) {
+                        is WebSocketMessage.AudioInput -> {
+                            handleAudioInput(message, outgoing, userId)
+                        }
+                        is WebSocketMessage.TextInput -> {
+                            handleTextInput(message, outgoing, userId)
+                        }
+                        is WebSocketMessage.GenerateStory -> {
+                            handleGenerateStory(message, outgoing, userId)
+                        }
+                        else -> {}
                     }
-                    is WebSocketMessage.TextInput -> {
-                        handleTextInput(message, outgoing, userId)
+                } catch (e: Exception) {
+                    logger.error("Error handling message", e)
+                    try {
+                        outgoing.send(WebSocketMessage.Error("처리 중 오류가 발생했습니다: ${e.message}"))
+                    } catch (sendError: Exception) {
+                        logger.error("Failed to send error message", sendError)
                     }
-                    is WebSocketMessage.GenerateStory -> {
-                        handleGenerateStory(message, outgoing, userId)
-                    }
-                    else -> {}
                 }
-            } catch (e: Exception) {
-                logger.error("Error handling message", e)
-                outgoing.send(WebSocketMessage.Error("처리 중 오류가 발생했습니다: ${e.message}"))
             }
+        } catch (e: kotlinx.coroutines.channels.ClosedReceiveChannelException) {
+            logger.debug("Incoming channel closed for user: $userId")
+        } catch (e: Exception) {
+            logger.error("Unexpected error in handleIncomingMessages", e)
         }
     }
     
@@ -264,9 +289,15 @@ class NovelWebSocketService(
         session: DefaultWebSocketSession,
         outgoing: Channel<WebSocketMessage>
     ) {
-        for (message in outgoing) {
-            val jsonMessage = json.encodeToString(message)
-            session.send(Frame.Text(jsonMessage))
+        try {
+            for (message in outgoing) {
+                val jsonMessage = globalJson.encodeToString(WebSocketMessage.serializer(), message)
+                session.send(Frame.Text(jsonMessage))
+            }
+        } catch (e: kotlinx.coroutines.channels.ClosedSendChannelException) {
+            logger.debug("Outgoing channel closed for WebSocket session.")
+        } catch (e: Exception) {
+            logger.error("Unexpected error in sendOutgoingMessages", e)
         }
     }
 }
