@@ -44,3 +44,4 @@ data class PersonalityTestRequest(
     val responses: Map<String, Int>,
     val preferredGenres: Set<String>
 )
+

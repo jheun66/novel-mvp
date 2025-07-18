@@ -48,6 +48,7 @@ dependencies {
     implementation(libs.hikaricp)
     implementation(libs.flyway.database.postgresql)
     implementation(libs.jbcrypt)
+    implementation(libs.google.auth.library.oauth2.http)
     testImplementation(libs.ktor.server.test.host)
     testImplementation(libs.kotlin.test.junit)
     testImplementation(libs.kotest.runner.junit5)

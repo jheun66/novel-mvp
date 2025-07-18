@@ -1,6 +1,7 @@
 package com.novel.routes
 
 import com.novel.application.user.*
+import com.novel.config.OAuthConfig
 import com.novel.middleware.OAuthTokenValidator
 import io.ktor.http.*
 import io.ktor.server.auth.*
@@ -46,6 +47,7 @@ fun Route.userRoutes() {
     val checkStoryGenerationEligibilityUseCase by inject<CheckStoryGenerationEligibilityUseCase>()
     val logoutUseCase by inject<LogoutUseCase>()
     val oAuthTokenValidator by inject<OAuthTokenValidator>()
+    val oAuthConfig by inject<OAuthConfig>()
 
     route("/api/v1/users") {
         // Public endpoints
@@ -138,6 +140,7 @@ fun Route.userRoutes() {
             }
         }
 
+
         // OAuth login for mobile/external clients
         post("/oauth/login") {
             try {
@@ -146,7 +149,11 @@ fun Route.userRoutes() {
                 // Validate OAuth token with provider
                 val userInfo = when (request.provider.uppercase()) {
                     "GOOGLE" -> {
-                        oAuthTokenValidator.validateGoogleToken(request.accessToken)?.let { userInfo ->
+                        // First try to validate as ID token, then fallback to access token
+                        val googleUserInfo = oAuthTokenValidator.validateGoogleIdToken(request.accessToken, oAuthConfig.google.clientId)
+                            ?: oAuthTokenValidator.validateGoogleToken(request.accessToken)
+                        
+                        googleUserInfo?.let { userInfo ->
                             OAuthUserInfo(
                                 email = userInfo.email,
                                 name = userInfo.name,
@@ -155,7 +162,7 @@ fun Route.userRoutes() {
                         } ?: run {
                             call.respond(
                                 HttpStatusCode.Unauthorized,
-                                ErrorResponse("INVALID_OAUTH_TOKEN", "Invalid or expired Google access token")
+                                ErrorResponse("INVALID_OAUTH_TOKEN", "Invalid or expired Google token")
                             )
                             return@post
                         }
