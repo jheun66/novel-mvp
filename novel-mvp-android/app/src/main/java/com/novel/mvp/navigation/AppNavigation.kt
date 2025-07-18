@@ -11,6 +11,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.novel.mvp.di.AppModule
 import com.novel.mvp.presentation.login.LoginScreen
+import com.novel.mvp.presentation.websocket.WebSocketTestScreen
 import com.novel.mvp.utils.GoogleSignInResult
 import kotlinx.coroutines.launch
 
@@ -73,16 +74,15 @@ fun AppNavigation(
         }
         
         composable("main") {
-            MainScreen()
+            // Initialize WebSocket test screen dependencies
+            val httpClient = AppModule.provideHttpClient()
+            val tokenStorage = AppModule.provideTokenStorage(context)
+            val webSocketService = AppModule.provideStoryWebSocketService(httpClient, tokenStorage)
+            val storyRepository = AppModule.provideStoryRepository(webSocketService)
+            val webSocketTestViewModel = AppModule.provideWebSocketTestViewModel(storyRepository)
+            
+            WebSocketTestScreen(viewModel = webSocketTestViewModel)
         }
     }
 }
 
-@Composable
-fun MainScreen() {
-    // TODO : Implement main screen
-    androidx.compose.material3.Text(
-        text = "Main Screen - Coming Soon!",
-        modifier = Modifier.fillMaxSize()
-    )
-}

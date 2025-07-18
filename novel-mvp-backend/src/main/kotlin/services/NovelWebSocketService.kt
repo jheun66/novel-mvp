@@ -13,6 +13,7 @@ import io.ktor.websocket.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
@@ -22,23 +23,27 @@ import java.util.*
 @Serializable
 sealed class WebSocketMessage {
     @Serializable
+    @SerialName("AudioInput")
     data class AudioInput(
         val audioData: String,  // Base64 encoded audio
         val format: String = "pcm16"
     ) : WebSocketMessage()
 
     @Serializable
+    @SerialName("TextInput")
     data class TextInput(
         val text: String,
         val conversationId: String = UUID.randomUUID().toString()
     ) : WebSocketMessage()
 
     @Serializable
+    @SerialName("GenerateStory")
     data class GenerateStory(
         val conversationId: String
     ) : WebSocketMessage()
 
     @Serializable
+    @SerialName("AudioOutput")
     data class AudioOutput(
         val audioData: String,  // Base64 encoded audio
         val format: String = "pcm16",
@@ -46,6 +51,7 @@ sealed class WebSocketMessage {
     ) : WebSocketMessage()
 
     @Serializable
+    @SerialName("TextOutput")
     data class TextOutput(
         val text: String,
         val emotion: String? = null,
@@ -54,6 +60,7 @@ sealed class WebSocketMessage {
     ) : WebSocketMessage()
 
     @Serializable
+    @SerialName("StoryOutput")
     data class StoryOutput(
         val title: String,
         val content: String,
@@ -63,17 +70,20 @@ sealed class WebSocketMessage {
     ) : WebSocketMessage()
 
     @Serializable
+    @SerialName("Error")
     data class Error(
         val message: String,
         val code: String? = null
     ) : WebSocketMessage()
     
     @Serializable
+    @SerialName("AuthRequest")
     data class AuthRequest(
         val token: String
     ) : WebSocketMessage()
     
     @Serializable
+    @SerialName("AuthResponse")
     data class AuthResponse(
         val success: Boolean,
         val message: String? = null
@@ -97,8 +107,18 @@ class NovelWebSocketService(
     private val webSocketAuth = WebSocketAuth()
     private val conversationContexts = mutableMapOf<String, ConversationContext>()
     
-    suspend fun handleWebSocketSession(session: DefaultWebSocketSession) {
-        var authenticatedUser: AuthenticatedUser? = null
+    suspend fun handleWebSocketSession(session: DefaultWebSocketSession, token: String) {
+        // Authenticate immediately with provided token
+        var authenticatedUser: AuthenticatedUser? = webSocketAuth.authenticateWebSocket(session, token)
+        
+        // Check if authentication was successful
+        if (authenticatedUser == null) {
+            logger.warn("WebSocket authentication failed for token")
+            session.close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "Authentication failed"))
+            return
+        }
+        
+        logger.info("WebSocket authenticated for user: ${authenticatedUser.userId}")
         
         // Create channels for bidirectional communication
         val incoming = Channel<WebSocketMessage>(Channel.BUFFERED)
@@ -116,46 +136,20 @@ class NovelWebSocketService(
                                         val text = frame.readText()
                                         val message = globalJson.decodeFromString<WebSocketMessage>(text)
                                         
-                                        // Handle authentication first
-                                        if (message is WebSocketMessage.AuthRequest) {
-                                            authenticatedUser = webSocketAuth.authenticateWebSocket(session, message.token)
-                                            if (authenticatedUser != null) {
-                                                outgoing.send(WebSocketMessage.AuthResponse(
-                                                    success = true,
-                                                    message = "Authentication successful"
-                                                ))
-                                                logger.info("WebSocket authenticated for user: ${authenticatedUser?.userId}")
-                                            } else {
-                                                outgoing.send(WebSocketMessage.AuthResponse(
-                                                    success = false,
-                                                    message = "Authentication failed"
-                                                ))
-                                                session.close(CloseReason(CloseReason.Codes.NORMAL, "Authentication failed"))
-                                                break
-                                            }
-                                        } else if (authenticatedUser != null) {
-                                            // Only process other messages if authenticated
-                                            incoming.send(message)
-                                        } else {
-                                            outgoing.send(WebSocketMessage.Error(
-                                                message = "Authentication required",
-                                                code = "AUTH_REQUIRED"
-                                            ))
-                                        }
+                                        // Process messages directly since authentication is already done
+                                        incoming.send(message)
                                     } catch (e: Exception) {
                                         logger.error("Failed to parse message", e)
                                         outgoing.send(WebSocketMessage.Error("Invalid message format"))
                                     }
                                 }
                                 is Frame.Binary -> {
-                                    if (authenticatedUser != null) {
-                                        // Handle binary audio data directly
-                                        val audioData = frame.readBytes()
-                                        incoming.send(WebSocketMessage.AudioInput(
-                                            audioData = Base64.getEncoder().encodeToString(audioData),
-                                            format = "pcm16"
-                                        ))
-                                    }
+                                    // Handle binary audio data directly
+                                    val audioData = frame.readBytes()
+                                    incoming.send(WebSocketMessage.AudioInput(
+                                        audioData = Base64.getEncoder().encodeToString(audioData),
+                                        format = "pcm16"
+                                    ))
                                 }
                                 else -> {}
                             }
@@ -168,9 +162,7 @@ class NovelWebSocketService(
                 // Launch coroutine for handling incoming messages
                 launch { 
                     try {
-                        authenticatedUser?.let { user ->
-                            handleIncomingMessages(incoming, outgoing, user)
-                        }
+                        handleIncomingMessages(incoming, outgoing, authenticatedUser)
                     } finally {
                         outgoing.close()
                     }

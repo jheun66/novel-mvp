@@ -24,6 +24,8 @@ val globalJson = Json {
             subclass(WebSocketMessage.TextOutput::class)
             subclass(WebSocketMessage.StoryOutput::class)
             subclass(WebSocketMessage.Error::class)
+            subclass(WebSocketMessage.AuthRequest::class)
+            subclass(WebSocketMessage.AuthResponse::class)
         }
     }
 }

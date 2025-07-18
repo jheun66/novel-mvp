@@ -14,6 +14,8 @@ import io.ktor.server.application.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import io.ktor.server.websocket.*
+import io.ktor.websocket.CloseReason
+import io.ktor.websocket.close
 import org.koin.ktor.ext.inject
 import org.slf4j.LoggerFactory
 
@@ -64,9 +66,25 @@ fun Application.configureRouting() {
         // User routes
         userRoutes()
         
-        // WebSocket endpoint - Authentication handled inside WebSocket connection
+        // WebSocket endpoint - Authentication handled during handshake
         webSocket("/ws/novel") {
-            webSocketService.handleWebSocketSession(this)
+            // Get Authorization header or token query parameter
+            val authHeader = call.request.headers["Authorization"]
+            val tokenParam = call.request.queryParameters["token"]
+            
+            val token = when {
+                authHeader?.startsWith("Bearer ") == true -> authHeader.removePrefix("Bearer ").trim()
+                !tokenParam.isNullOrBlank() -> tokenParam
+                else -> null
+            }
+            
+            if (token.isNullOrBlank()) {
+                logger.warn("WebSocket connection attempt without token")
+                close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "Authentication required"))
+                return@webSocket
+            }
+            
+            webSocketService.handleWebSocketSession(this, token)
         }
 
         get("/") {
