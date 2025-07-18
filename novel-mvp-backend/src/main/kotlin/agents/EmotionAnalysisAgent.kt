@@ -61,7 +61,7 @@ class EmotionAnalysisAgent(
         val prompt = buildPrompt(input)
         
         val chatCompletionRequest = ChatCompletionRequest(
-            model = ModelId("o4-mini"),
+            model = ModelId("gpt-4.1"),
             messages = listOf(
                 ChatMessage(
                     role = Role.User,

@@ -81,7 +81,8 @@ dependencies {
     
     // Serialization
     implementation(libs.kotlinx.serialization.json)
-    
+    implementation(libs.androidx.adaptive.android)
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

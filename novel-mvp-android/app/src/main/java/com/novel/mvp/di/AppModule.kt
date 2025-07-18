@@ -8,6 +8,7 @@ import com.novel.mvp.data.repository.AuthRepository
 import com.novel.mvp.data.repository.StoryRepository
 import com.novel.mvp.data.websocket.StoryWebSocketService
 import com.novel.mvp.presentation.login.LoginViewModel
+import com.novel.mvp.presentation.story.StoryViewModel
 import com.novel.mvp.presentation.websocket.WebSocketTestViewModel
 import com.novel.mvp.utils.GoogleCredentialManager
 import io.ktor.client.*
@@ -52,6 +53,10 @@ object AppModule {
     
     fun provideLoginViewModel(authRepository: AuthRepository): LoginViewModel {
         return LoginViewModel(authRepository)
+    }
+    
+    fun provideStoryViewModel(storyRepository: StoryRepository): StoryViewModel {
+        return StoryViewModel(storyRepository)
     }
     
     fun provideWebSocketTestViewModel(storyRepository: StoryRepository): WebSocketTestViewModel {

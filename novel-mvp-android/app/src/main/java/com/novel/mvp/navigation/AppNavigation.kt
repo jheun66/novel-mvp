@@ -11,6 +11,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.novel.mvp.di.AppModule
 import com.novel.mvp.presentation.login.LoginScreen
+import com.novel.mvp.presentation.story.StoryScreen
 import com.novel.mvp.presentation.websocket.WebSocketTestScreen
 import com.novel.mvp.utils.GoogleSignInResult
 import kotlinx.coroutines.launch
@@ -74,6 +75,22 @@ fun AppNavigation(
         }
         
         composable("main") {
+            // Initialize story screen dependencies
+            val httpClient = AppModule.provideHttpClient()
+            val tokenStorage = AppModule.provideTokenStorage(context)
+            val webSocketService = AppModule.provideStoryWebSocketService(httpClient, tokenStorage)
+            val storyRepository = AppModule.provideStoryRepository(webSocketService)
+            val storyViewModel = AppModule.provideStoryViewModel(storyRepository)
+            
+            StoryScreen(
+                viewModel = storyViewModel,
+                onNavigateBack = {
+                    navController.navigateUp()
+                }
+            )
+        }
+        
+        composable("websocket_test") {
             // Initialize WebSocket test screen dependencies
             val httpClient = AppModule.provideHttpClient()
             val tokenStorage = AppModule.provideTokenStorage(context)
