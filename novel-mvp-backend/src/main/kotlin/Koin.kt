@@ -1,6 +1,8 @@
 package com.novel
 
+import com.novel.di.authModule
 import com.novel.di.configModule
+import com.novel.di.databaseModule
 import com.novel.di.serviceModule
 import io.ktor.server.application.Application
 import io.ktor.server.application.install
@@ -18,9 +20,9 @@ fun Application.configureKoin() {
             },
             // 설정 모듈 (다른 모듈들이 의존하므로 먼저 로드)
             configModule,
-
+            authModule,
             serviceModule,
-            // databaseModule,
+            databaseModule
         )
     }
 }

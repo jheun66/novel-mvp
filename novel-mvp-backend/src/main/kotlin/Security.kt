@@ -13,6 +13,7 @@ import kotlinx.serialization.Serializable
 import org.koin.ktor.ext.inject
 import org.slf4j.MDC
 import java.time.Instant
+import java.util.concurrent.ConcurrentHashMap
 
 @Serializable
 data class ErrorResponse(
@@ -35,7 +36,8 @@ fun Application.configureSecurity() {
     val jwtService by inject<JWTService>()
     val oauthConfig by inject<OAuthConfig>()
 
-    val redirects = mutableMapOf<String, String>()
+    // Inject the ConcurrentHashMap from Koin
+    val oauthRedirectsMap by inject<ConcurrentHashMap<String, String>>()
 
     authentication {
         // Google OAuth 설정 - 설정 객체 사용
@@ -44,8 +46,8 @@ fun Application.configureSecurity() {
             providerLookup = {
                 OAuthServerSettings.OAuth2ServerSettings(
                     name = "google",
-                    authorizeUrl = "https://accounts.google.com/o/oauth2/auth",
-                    accessTokenUrl = "https://accounts.google.com/o/oauth2/token",
+                    authorizeUrl = "https://accounts.google.com/o/oauth2/v2/auth",
+                    accessTokenUrl = "https://oauth2.googleapis.com/token",
                     requestMethod = HttpMethod.Post,
                     clientId = oauthConfig.google.clientId,
                     clientSecret = oauthConfig.google.clientSecret,
@@ -59,7 +61,7 @@ fun Application.configureSecurity() {
                     ),
                     onStateCreated = { call, state ->
                         call.request.queryParameters["redirectUrl"]?.let {
-                            redirects[state] = it
+                            oauthRedirectsMap[state] = it
                         }
                     }
                 )

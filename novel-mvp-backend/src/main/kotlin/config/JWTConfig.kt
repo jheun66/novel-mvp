@@ -14,15 +14,18 @@ data class JWTConfig(
     companion object {
         fun fromApplication(application: Application): JWTConfig {
             val config = application.environment.config
-            val isDevelopment = config.property("ktor.development").getString().toBoolean()
-            
+
             return JWTConfig(
                 realm = config.property("jwt.realm").getString(),
-                secret = config.property("jwt.secret").getString(), // TODO : Only use for development
-                issuer = config.property("jwt.domain").getString(),
+                secret = config.property("jwt.secret").getString(),
+                issuer = config.property("jwt.issuer").getString(),
                 audience = config.property("jwt.audience").getString(),
-                accessTokenExpiry = if (isDevelopment) Duration.ofDays(7) else Duration.ofMinutes(15),
-                refreshTokenExpiry = Duration.ofDays(30)
+                accessTokenExpiry = Duration.ofMillis(
+                    config.property("jwt.accessTokenExpiry").getString().toLong()
+                ),
+                refreshTokenExpiry = Duration.ofMillis(
+                    config.property("jwt.refreshTokenExpiry").getString().toLong()
+                )
             )
         }
     }

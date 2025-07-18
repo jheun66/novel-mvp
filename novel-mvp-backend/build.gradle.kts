@@ -26,6 +26,7 @@ dependencies {
     implementation(libs.ktor.server.auth)
     implementation(libs.ktor.server.auth.jwt)
     implementation(libs.ktor.server.call.logging)
+    implementation(libs.ktor.server.openapi)
     implementation(libs.ktor.serialization.kotlinx.json)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.core)
@@ -33,6 +34,7 @@ dependencies {
     implementation(libs.ktor.client.cio)
     implementation(libs.ktor.client.content.negotiation)
     implementation(libs.ktor.client.websockets)
+    implementation(libs.ktor.client.logging)
     implementation(libs.logback.classic)
     implementation(libs.ktor.server.config.yaml)
     implementation(libs.openai.client)
@@ -45,13 +47,16 @@ dependencies {
     implementation(libs.exposed.kotlin.datetime)
     implementation(libs.hikaricp)
     implementation(libs.flyway.database.postgresql)
+    implementation(libs.jbcrypt)
     testImplementation(libs.ktor.server.test.host)
     testImplementation(libs.kotlin.test.junit)
     testImplementation(libs.kotest.runner.junit5)
     testImplementation(libs.kotest.assertions.core)
     testImplementation(libs.kotest.property)
+    testImplementation(libs.kotest.extensions.koin)
     testImplementation(libs.mockk)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.koin.ktor.test)
 }
 
 tasks.withType<Test>().configureEach {

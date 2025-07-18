@@ -14,7 +14,14 @@ data class StoryGenerationInput(
     val conversationContext: String,
     val emotionAnalysis: EmotionAnalysisOutput,
     val userId: String,
-    val conversationHighlights: List<String> = emptyList()
+    val conversationHighlights: List<String> = emptyList(),
+    val userPreferences: StoryPreferences? = null
+)
+
+@Serializable
+data class StoryPreferences(
+    val preferredGenres: List<String> = emptyList(),
+    val personalityTraits: Map<String, Int> = emptyMap()
 )
 
 @Serializable
@@ -87,6 +94,33 @@ class StoryGenerationAgent(
             "NOSTALGIC" -> "그리움"
             else -> "중립"
         }
+        
+        val genrePreferences = input.userPreferences?.preferredGenres?.let { genres ->
+            if (genres.isNotEmpty()) {
+                """
+                === 사용자 선호 장르 ===
+                ${genres.joinToString(", ") { translateGenre(it) }}
+                (위 장르 중 하나를 선택하여 스토리를 작성해주세요)
+                """
+            } else null
+        } ?: ""
+        
+        val personalityContext = input.userPreferences?.personalityTraits?.let { traits ->
+            if (traits.isNotEmpty()) {
+                """
+                === 사용자 성격 특성 ===
+                ${traits.entries.mapNotNull { (trait, score) ->
+                    when(trait) {
+                        "OPENNESS" -> "개방성: ${score}점 - ${if (score > 60) "새로운 경험과 모험을 즐김" else "익숙하고 안정적인 것을 선호"}"
+                        "EMOTIONAL_DEPTH" -> "감정 깊이: ${score}점 - ${if (score > 60) "깊고 복잡한 감정 표현 선호" else "간결하고 명확한 표현 선호"}"
+                        "CREATIVITY" -> "창의성: ${score}점 - ${if (score > 60) "독특하고 예술적인 표현 선호" else "전통적이고 이해하기 쉬운 표현 선호"}"
+                        else -> null
+                    }
+                }.joinToString("\n")}
+                (위 성격 특성을 고려하여 스토리 스타일을 조정해주세요)
+                """
+            } else null
+        } ?: ""
 
         return """
             사용자와의 대화 내용과 감정 분석을 바탕으로 깊이 있고 개인화된 단편 소설을 작성해주세요.
@@ -100,6 +134,10 @@ class StoryGenerationAgent(
             키워드: ${input.emotionAnalysis.keywords.joinToString(", ")}
             감정 변화: ${input.emotionAnalysis.emotionalProgression ?: "일정함"}
             
+            $genrePreferences
+            
+            $personalityContext
+            
             === 작성 지침 ===
             - 400-600자 분량의 단편 소설
             - 1인칭 시점으로 작성
@@ -107,6 +145,7 @@ class StoryGenerationAgent(
             - 감정의 변화와 흐름을 자연스럽게 표현
             - 일상 속에서 특별한 의미를 발견하는 순간 포착
             - 독자가 공감할 수 있는 보편적인 감정 표현
+            - 사용자의 성격과 선호도를 반영한 스타일과 톤
             
             다음 형식으로 작성해주세요:
             
@@ -127,6 +166,19 @@ class StoryGenerationAgent(
             - [이야기의 핵심 순간 2]
             - [이야기의 핵심 순간 3]
         """.trimIndent()
+    }
+    
+    private fun translateGenre(genre: String): String {
+        return when(genre) {
+            "HEALING" -> "치유"
+            "ROMANCE" -> "로맨스"
+            "MYSTERY" -> "미스터리"
+            "FANTASY" -> "판타지"
+            "SLICE_OF_LIFE" -> "일상"
+            "ADVENTURE" -> "모험"
+            "COMEDY" -> "코미디"
+            else -> genre
+        }
     }
 
     private fun parseStoryResponse(response: String, input: StoryGenerationInput): StoryGenerationOutput {

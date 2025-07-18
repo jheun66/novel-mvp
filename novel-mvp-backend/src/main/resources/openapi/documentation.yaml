@@ -1,0 +1,643 @@
+openapi: 3.0.3
+info:
+  title: Novel MVP Backend API
+  description: |
+    AI 기반 대화형 스토리텔링 시스템 API
+    
+    사용자의 일상 대화를 감성적인 단편 소설로 변환하는 서비스입니다.
+  version: 1.0.0
+  contact:
+    name: Novel MVP Team
+    email: contact@novel-mvp.com
+
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+  - url: https://api.novel-mvp.com
+    description: Production server
+
+tags:
+  - name: Health
+    description: 서버 상태 확인
+  - name: Users
+    description: 사용자 관리 및 인증
+  - name: Stories
+    description: 스토리 생성 (WebSocket)
+
+paths:
+  /:
+    get:
+      tags:
+        - Health
+      summary: 서버 상태 확인
+      responses:
+        '200':
+          description: 서버가 정상적으로 작동 중
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: "Novel MVP API is running!"
+
+  /health:
+    get:
+      tags:
+        - Health
+      summary: 헬스체크 엔드포인트
+      responses:
+        '200':
+          description: 서버 상태 정상
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: "OK"
+
+  /api/v1/users/register:
+    post:
+      tags:
+        - Users
+      summary: 신규 사용자 등록
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserRequest'
+      responses:
+        '201':
+          description: 사용자 생성 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '409':
+          description: 사용자가 이미 존재함
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/users/login:
+    post:
+      tags:
+        - Users
+      summary: 사용자 로그인
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: 로그인 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: 인증 실패
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/users/login/google:
+    get:
+      tags:
+        - Users
+      summary: Google OAuth 웹 플로우 시작
+      description: |
+        사용자를 Google 로그인 페이지로 리다이렉트합니다.
+        웹 애플리케이션에서 사용하는 OAuth 플로우입니다.
+      responses:
+        '302':
+          description: Google OAuth 페이지로 리다이렉트
+          
+  /api/v1/users/oauth/callback/google:
+    get:
+      tags:
+        - Users
+      summary: Google OAuth 콜백 처리
+      description: |
+        Google OAuth 인증 후 콜백을 처리합니다.
+        이 엔드포인트는 Google이 직접 호출하므로 클라이언트에서 직접 호출하지 않습니다.
+      parameters:
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Google OAuth 인증 코드
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+          description: CSRF 방지를 위한 state 파라미터
+      responses:
+        '200':
+          description: OAuth 인증 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '500':
+          description: OAuth 처리 실패
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/users/oauth/login:
+    post:
+      tags:
+        - Users
+      summary: OAuth 로그인 (토큰 검증 포함)
+      description: |
+        모바일 앱이나 SPA에서 OAuth 토큰을 전달받아 로그인 처리합니다.
+        
+        서버는 다음 단계를 수행합니다:
+        1. OAuth 제공자의 API를 통해 액세스 토큰 검증
+        2. 토큰에서 가져온 이메일과 요청 이메일 일치 확인
+        3. 사용자 생성 또는 로그인 처리
+        4. JWT 토큰 발급
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OAuthLoginRequest'
+      responses:
+        '200':
+          description: OAuth 로그인 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          description: 잘못된 요청 (이메일 불일치, 지원하지 않는 제공자)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: 유효하지 않은 OAuth 토큰
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/users/refresh:
+    post:
+      tags:
+        - Users
+      summary: 액세스 토큰 갱신
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshTokenRequest'
+      responses:
+        '200':
+          description: 토큰 갱신 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokensResponse'
+
+  /api/v1/users/me:
+    get:
+      tags:
+        - Users
+      summary: 현재 사용자 정보 조회
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: 사용자 정보
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '401':
+          description: 인증 필요
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    
+    patch:
+      tags:
+        - Users
+      summary: 사용자 프로필 업데이트
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUserProfileRequest'
+      responses:
+        '200':
+          description: 프로필 업데이트 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+
+  /api/v1/users/me/personality:
+    post:
+      tags:
+        - Users
+      summary: 성격 테스트 결과 제출
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PersonalityTestRequest'
+      responses:
+        '200':
+          description: 성격 프로필 업데이트 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+
+  /api/v1/users/me/subscription/upgrade:
+    post:
+      tags:
+        - Users
+      summary: 프리미엄 구독 업그레이드
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - paymentToken
+              properties:
+                paymentToken:
+                  type: string
+                  description: 결제 토큰
+                months:
+                  type: integer
+                  default: 1
+                  description: 구독 개월 수
+      responses:
+        '200':
+          description: 구독 업그레이드 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '402':
+          description: 결제 실패
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/users/me/can-generate-story:
+    get:
+      tags:
+        - Users
+      summary: 스토리 생성 가능 여부 확인
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: 생성 가능 여부
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  canGenerate:
+                    type: boolean
+
+  /api/v1/users/logout:
+    post:
+      tags:
+        - Users
+      summary: 로그아웃
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: 로그아웃 성공
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Logged out successfully"
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    CreateUserRequest:
+      type: object
+      required:
+        - email
+        - username
+        - displayName
+      properties:
+        email:
+          type: string
+          format: email
+          example: "user@example.com"
+        username:
+          type: string
+          minLength: 3
+          maxLength: 50
+          pattern: "^[a-zA-Z0-9_]+$"
+          example: "john_doe"
+        displayName:
+          type: string
+          example: "John Doe"
+        password:
+          type: string
+          minLength: 8
+          description: "필수 (LOCAL 인증인 경우)"
+        authProvider:
+          type: string
+          enum: ["LOCAL", "GOOGLE", "KAKAO"]
+          default: "LOCAL"
+        profileImageUrl:
+          type: string
+          format: uri
+
+    LoginRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+
+    OAuthLoginRequest:
+      type: object
+      required:
+        - provider
+        - accessToken
+        - email
+        - displayName
+      properties:
+        provider:
+          type: string
+          enum: ["GOOGLE", "KAKAO"]
+          description: OAuth 제공자
+        accessToken:
+          type: string
+          description: OAuth 제공자로부터 받은 액세스 토큰 (서버에서 검증됨)
+        email:
+          type: string
+          format: email
+          description: 사용자 이메일 (토큰의 이메일과 일치해야 함)
+        displayName:
+          type: string
+          description: 표시 이름
+        profileImageUrl:
+          type: string
+          format: uri
+          description: 프로필 이미지 URL (선택사항)
+
+    RefreshTokenRequest:
+      type: object
+      required:
+        - refreshToken
+      properties:
+        refreshToken:
+          type: string
+
+    UpdateUserProfileRequest:
+      type: object
+      properties:
+        username:
+          type: string
+          minLength: 3
+          maxLength: 50
+          pattern: "^[a-zA-Z0-9_]+$"
+        displayName:
+          type: string
+        profileImageUrl:
+          type: string
+          format: uri
+
+    PersonalityTestRequest:
+      type: object
+      required:
+        - responses
+        - preferredGenres
+      properties:
+        responses:
+          type: object
+          additionalProperties:
+            type: integer
+            minimum: 0
+            maximum: 100
+          example:
+            q1: 75
+            q2: 60
+            q3: 80
+        preferredGenres:
+          type: array
+          items:
+            type: string
+            enum: ["HEALING", "ROMANCE", "MYSTERY", "FANTASY", "SLICE_OF_LIFE", "ADVENTURE", "COMEDY"]
+          minItems: 1
+
+    AuthResponse:
+      type: object
+      properties:
+        user:
+          $ref: '#/components/schemas/UserResponse'
+        tokens:
+          $ref: '#/components/schemas/TokensResponse'
+
+    UserResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        username:
+          type: string
+        displayName:
+          type: string
+        profileImageUrl:
+          type: string
+          format: uri
+          nullable: true
+        authProvider:
+          type: string
+          enum: ["LOCAL", "GOOGLE", "KAKAO"]
+        personalityProfile:
+          $ref: '#/components/schemas/PersonalityProfileResponse'
+        subscriptionStatus:
+          type: string
+          enum: ["FREE", "PREMIUM", "PREMIUM_TRIAL"]
+        subscriptionExpiresAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        canGenerateStory:
+          type: boolean
+        dailyStoryCount:
+          type: integer
+        totalStoriesGenerated:
+          type: integer
+
+    PersonalityProfileResponse:
+      type: object
+      nullable: true
+      properties:
+        traits:
+          type: object
+          additionalProperties:
+            type: integer
+            minimum: 0
+            maximum: 100
+        preferredGenres:
+          type: array
+          items:
+            type: string
+        lastUpdated:
+          type: string
+          format: date-time
+
+    TokensResponse:
+      type: object
+      properties:
+        accessToken:
+          type: string
+        refreshToken:
+          type: string
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+        details:
+          type: object
+          additionalProperties:
+            type: string
+
+    WebSocketMessage:
+      oneOf:
+        - $ref: '#/components/schemas/TextInput'
+        - $ref: '#/components/schemas/GenerateStory'
+        - $ref: '#/components/schemas/TextOutput'
+        - $ref: '#/components/schemas/AudioOutput'
+        - $ref: '#/components/schemas/StoryOutput'
+      discriminator:
+        propertyName: type
+
+    TextInput:
+      type: object
+      required:
+        - type
+        - text
+        - conversationId
+      properties:
+        type:
+          type: string
+          enum: ["TextInput"]
+        text:
+          type: string
+        conversationId:
+          type: string
+
+    GenerateStory:
+      type: object
+      required:
+        - type
+        - conversationId
+      properties:
+        type:
+          type: string
+          enum: ["GenerateStory"]
+        conversationId:
+          type: string
+
+    TextOutput:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: ["TextOutput"]
+        text:
+          type: string
+        emotion:
+          type: string
+          nullable: true
+        suggestedQuestions:
+          type: array
+          items:
+            type: string
+        readyForStory:
+          type: boolean
+
+    AudioOutput:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: ["AudioOutput"]
+        audioData:
+          type: string
+          format: byte
+          description: Base64 encoded audio data
+        format:
+          type: string
+          default: "pcm16"
+        emotion:
+          type: string
+          nullable: true
+
+    StoryOutput:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: ["StoryOutput"]
+        title:
+          type: string
+        content:
+          type: string
+        emotion:
+          type: string
+        genre:
+          type: string
+        emotionalArc:
+          type: string

@@ -18,7 +18,15 @@ data class ConversationInput(
     val userId: String,
     val message: String,
     val conversationId: String = UUID.randomUUID().toString(),
-    val isVoiceInput: Boolean = false
+    val isVoiceInput: Boolean = false,
+    val userProfile: UserProfile? = null
+)
+
+@Serializable
+data class UserProfile(
+    val name: String,
+    val personalityTraits: Map<String, Int> = emptyMap(),
+    val preferredGenres: Set<String> = emptySet()
 )
 
 @Serializable
@@ -59,7 +67,8 @@ class ConversationAgent(
     
     override val name = "conversation"
     
-    private val systemPrompt = """
+    private fun buildSystemPrompt(userProfile: UserProfile?): String {
+        val basePrompt = """
         당신은 따뜻하고 공감적인 대화 상대입니다. 사용자의 하루 이야기를 자연스럽게 들어주고 공감하면서, 
         더 깊은 이야기를 이끌어내는 역할을 합니다.
         
@@ -69,6 +78,35 @@ class ConversationAgent(
         3. 자연스럽게 구체적인 디테일을 물어보세요
         4. 압박감을 주지 않고 편안한 분위기를 유지하세요
         5. 사용자가 말한 내용을 기억하고 연결지어 대화하세요
+        """.trimIndent()
+        
+        val personalityContext = userProfile?.let { profile ->
+            """
+            
+            사용자 정보:
+            - 이름: ${profile.name}
+            ${if (profile.personalityTraits.isNotEmpty()) {
+                "- 성격 특성: " + profile.personalityTraits.entries.joinToString(", ") { 
+                    "${it.key}: ${it.value}점" 
+                }
+            } else ""}
+            ${if (profile.preferredGenres.isNotEmpty()) {
+                "- 선호 장르: " + profile.preferredGenres.joinToString(", ")
+            } else ""}
+            
+            사용자의 성격 특성을 고려하여 대화 스타일을 조정하세요:
+            ${profile.personalityTraits.entries.mapNotNull { (trait, score) ->
+                when (trait) {
+                    "OPENNESS" -> if (score > 60) "- 새로운 경험에 대해 깊이 있게 물어보세요" else "- 익숙한 일상에 대해 편안하게 대화하세요"
+                    "EXTROVERSION" -> if (score > 60) "- 활발하고 에너지 넘치는 대화를 나누세요" else "- 차분하고 사려 깊은 대화를 나누세요"
+                    "EMOTIONAL_DEPTH" -> if (score > 60) "- 감정적인 측면을 깊이 탐구하세요" else "- 가볍고 실용적인 대화를 유지하세요"
+                    else -> null
+                }
+            }.joinToString("\n")}
+            """.trimIndent()
+        } ?: ""
+        
+        val instructionPrompt = """
         
         충분한 이야기가 모였다고 판단되면 (최소 3-4번의 대화 턴 후):
         - [READY_FOR_STORY] 태그를 응답에 포함시키세요
@@ -76,7 +114,10 @@ class ConversationAgent(
         
         사용자의 감정이 강하게 드러나면:
         - [EMOTION: 감정명] 태그를 포함시키세요
-    """.trimIndent()
+        """.trimIndent()
+        
+        return basePrompt + personalityContext + instructionPrompt
+    }
     
     override suspend fun process(input: ConversationInput): ConversationOutput {
         val context = contexts.getOrPut(input.conversationId) {
@@ -90,7 +131,8 @@ class ConversationAgent(
         ))
         context.turnCount++
         
-        // Generate response
+        // Generate response with personalized system prompt
+        val systemPrompt = buildSystemPrompt(input.userProfile)
         val messages = listOf(
             ChatMessage(role = Role.System, content = systemPrompt)
         ) + context.messages

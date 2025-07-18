@@ -25,18 +25,10 @@ data class OAuthConfig(
             // TODO : Only use for development
             return OAuthConfig(
                 google = GoogleOAuthConfig(
-                    clientId = if (isDevelopment) {
-                        config.propertyOrNull("oauth.google.clientId")?.getString() ?: ""
-                    } else {
-                        dotenv["GOOGLE_CLIENT_ID"] ?: System.getenv("GOOGLE_CLIENT_ID") ?: ""
-                    },
-                    clientSecret = if (isDevelopment) {
-                        config.propertyOrNull("oauth.google.clientSecret")?.getString() ?: ""
-                    } else {
-                        dotenv["GOOGLE_CLIENT_SECRET"] ?: System.getenv("GOOGLE_CLIENT_SECRET") ?: ""
-                    },
+                    clientId = dotenv["GOOGLE_CLIENT_ID"] ?: System.getenv("GOOGLE_CLIENT_ID") ?: "",
+                    clientSecret =  dotenv["GOOGLE_CLIENT_SECRET"] ?: System.getenv("GOOGLE_CLIENT_SECRET") ?: "",
                     callbackUrl = if (isDevelopment) {
-                        "http://localhost:8080/auth/oauth/google/callback"
+                        "http://localhost:8080/api/v1/users/oauth/callback/google"
                     } else {
                         "https://api.yourdomain.com/auth/oauth/google/callback"
                     }

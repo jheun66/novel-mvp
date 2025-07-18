@@ -4,13 +4,14 @@ import com.novel.agents.ConversationAgent
 import com.novel.agents.EmotionAnalysisAgent
 import com.novel.agents.StoryGenerationAgent
 import com.novel.agents.base.SimpleAgentCommunicator
-import com.novel.services.ElevenLabsService
+import com.novel.routes.userRoutes
 import com.novel.services.ElevenLabsConfig
+import com.novel.services.ElevenLabsService
 import com.novel.services.NovelWebSocketService
 import io.github.cdimascio.dotenv.dotenv
-import io.ktor.client.HttpClient
+import io.ktor.client.*
 import io.ktor.server.application.*
-import io.ktor.server.response.respondText
+import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import io.ktor.server.websocket.*
 import org.koin.ktor.ext.inject
@@ -60,6 +61,10 @@ fun Application.configureRouting() {
 
     // Routes
     routing {
+        // User routes
+        userRoutes()
+        
+        // WebSocket endpoint - Authentication handled inside WebSocket connection
         webSocket("/ws/novel") {
             webSocketService.handleWebSocketSession(this)
         }

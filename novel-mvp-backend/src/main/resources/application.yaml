@@ -10,10 +10,10 @@ ktor:
 database:
     # PostgreSQL configuration
     postgres:
-        url: "$DB_URL:jdbc:postgresql://localhost:5432/your-story-postgres"
+        url: "$DB_URL:jdbc:postgresql://localhost:5432/novel_db"
         driver: "org.postgresql.Driver"
-        user: "$DB_USER:your_story_user"
-        password: "$DB_PASSWORD:your_story_password"
+        user: "$DB_USER:novel_user"
+        password: "$DB_PASSWORD:novel_password"
 
     # HikariCP connection pool settings
     hikaricp:
@@ -35,11 +35,8 @@ database:
 jwt:
     domain: "https://jwt-provider-domain/"
     audience: "jwt-audience"
-    realm: "ktor sample app"
-    secret: "your-256-bit-secret-your-256-bit-secret" # Only use for development
-
-# OAuth configuration
-oauth:
-    google:
-        clientId: "$GOOGLE_CLIENT_ID:your-google-client-id"
-        clientSecret: "$GOOGLE_CLIENT_SECRET:your-google-client-secret"
+    realm: "Novel MVP App"
+    secret: "$JWT_SECRET:your-256-bit-secret-your-256-bit-secret" # Use environment variable
+    issuer: "http://localhost:8080"
+    accessTokenExpiry: 3600000  # 1 hour in milliseconds
+    refreshTokenExpiry: 2592000000  # 30 days in milliseconds

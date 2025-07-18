@@ -2,12 +2,20 @@ package com.novel.services
 
 import com.novel.agents.*
 import com.novel.agents.base.AgentCommunicator
+import com.novel.application.user.CheckStoryGenerationEligibilityUseCase
+import com.novel.application.user.GetUserUseCase
+import com.novel.auth.AuthenticatedUser
+import com.novel.auth.WebSocketAuth
+import com.novel.domain.user.UserDomainEvent
 import com.novel.globalJson
+import com.novel.application.user.DomainEventPublisher
 import io.ktor.websocket.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
+import org.koin.core.component.KoinComponent
+import org.koin.core.component.inject
 import org.slf4j.LoggerFactory
 import java.util.*
 
@@ -59,6 +67,17 @@ sealed class WebSocketMessage {
         val message: String,
         val code: String? = null
     ) : WebSocketMessage()
+    
+    @Serializable
+    data class AuthRequest(
+        val token: String
+    ) : WebSocketMessage()
+    
+    @Serializable
+    data class AuthResponse(
+        val success: Boolean,
+        val message: String? = null
+    ) : WebSocketMessage()
 }
 
 class NovelWebSocketService(
@@ -67,15 +86,19 @@ class NovelWebSocketService(
     private val storyGenerationAgent: StoryGenerationAgent,
     private val speechService: ElevenLabsService,
     private val communicator: AgentCommunicator
-) {
+) : KoinComponent {
     private val logger = LoggerFactory.getLogger(NovelWebSocketService::class.java)
     
+    // Inject use cases
+    private val getUserUseCase: GetUserUseCase by inject()
+    private val checkStoryGenerationEligibilityUseCase: CheckStoryGenerationEligibilityUseCase by inject()
+    private val eventPublisher: DomainEventPublisher by inject()
+    
+    private val webSocketAuth = WebSocketAuth()
     private val conversationContexts = mutableMapOf<String, ConversationContext>()
     
     suspend fun handleWebSocketSession(session: DefaultWebSocketSession) {
-        // TODO : 임시로 유저 분류
-        val userId = "user-${UUID.randomUUID()}"
-        logger.info("WebSocket connected: $userId")
+        var authenticatedUser: AuthenticatedUser? = null
         
         // Create channels for bidirectional communication
         val incoming = Channel<WebSocketMessage>(Channel.BUFFERED)
@@ -92,19 +115,47 @@ class NovelWebSocketService(
                                     try {
                                         val text = frame.readText()
                                         val message = globalJson.decodeFromString<WebSocketMessage>(text)
-                                        incoming.send(message)
+                                        
+                                        // Handle authentication first
+                                        if (message is WebSocketMessage.AuthRequest) {
+                                            authenticatedUser = webSocketAuth.authenticateWebSocket(session, message.token)
+                                            if (authenticatedUser != null) {
+                                                outgoing.send(WebSocketMessage.AuthResponse(
+                                                    success = true,
+                                                    message = "Authentication successful"
+                                                ))
+                                                logger.info("WebSocket authenticated for user: ${authenticatedUser?.userId}")
+                                            } else {
+                                                outgoing.send(WebSocketMessage.AuthResponse(
+                                                    success = false,
+                                                    message = "Authentication failed"
+                                                ))
+                                                session.close(CloseReason(CloseReason.Codes.NORMAL, "Authentication failed"))
+                                                break
+                                            }
+                                        } else if (authenticatedUser != null) {
+                                            // Only process other messages if authenticated
+                                            incoming.send(message)
+                                        } else {
+                                            outgoing.send(WebSocketMessage.Error(
+                                                message = "Authentication required",
+                                                code = "AUTH_REQUIRED"
+                                            ))
+                                        }
                                     } catch (e: Exception) {
                                         logger.error("Failed to parse message", e)
                                         outgoing.send(WebSocketMessage.Error("Invalid message format"))
                                     }
                                 }
                                 is Frame.Binary -> {
-                                    // Handle binary audio data directly
-                                    val audioData = frame.readBytes()
-                                    incoming.send(WebSocketMessage.AudioInput(
-                                        audioData = Base64.getEncoder().encodeToString(audioData),
-                                        format = "pcm16"
-                                    ))
+                                    if (authenticatedUser != null) {
+                                        // Handle binary audio data directly
+                                        val audioData = frame.readBytes()
+                                        incoming.send(WebSocketMessage.AudioInput(
+                                            audioData = Base64.getEncoder().encodeToString(audioData),
+                                            format = "pcm16"
+                                        ))
+                                    }
                                 }
                                 else -> {}
                             }
@@ -117,7 +168,9 @@ class NovelWebSocketService(
                 // Launch coroutine for handling incoming messages
                 launch { 
                     try {
-                        handleIncomingMessages(incoming, outgoing, userId) 
+                        authenticatedUser?.let { user ->
+                            handleIncomingMessages(incoming, outgoing, user)
+                        }
                     } finally {
                         outgoing.close()
                     }
@@ -131,29 +184,31 @@ class NovelWebSocketService(
         } catch (e: Exception) {
             logger.error("WebSocket error: ${e.message}", e)
         } finally {
-            logger.info("WebSocket disconnected: $userId")
+            logger.info("WebSocket disconnected: ${authenticatedUser?.userId}")
             // Clean up any remaining conversation contexts for this user
-            conversationContexts.entries.removeIf { it.value.userId == userId }
+            authenticatedUser?.let { user ->
+                conversationContexts.entries.removeIf { it.value.userId == user.userId }
+            }
         }
     }
     
     private suspend fun handleIncomingMessages(
         incoming: Channel<WebSocketMessage>,
         outgoing: Channel<WebSocketMessage>,
-        userId: String
+        user: AuthenticatedUser
     ) {
         try {
             for (message in incoming) {
                 try {
                     when (message) {
                         is WebSocketMessage.AudioInput -> {
-                            handleAudioInput(message, outgoing, userId)
+                            handleAudioInput(message, outgoing, user)
                         }
                         is WebSocketMessage.TextInput -> {
-                            handleTextInput(message, outgoing, userId)
+                            handleTextInput(message, outgoing, user)
                         }
                         is WebSocketMessage.GenerateStory -> {
-                            handleGenerateStory(message, outgoing, userId)
+                            handleGenerateStory(message, outgoing, user)
                         }
                         else -> {}
                     }
@@ -167,7 +222,7 @@ class NovelWebSocketService(
                 }
             }
         } catch (e: kotlinx.coroutines.channels.ClosedReceiveChannelException) {
-            logger.debug("Incoming channel closed for user: $userId")
+            logger.debug("Incoming channel closed for user: ${user.userId}")
         } catch (e: Exception) {
             logger.error("Unexpected error in handleIncomingMessages", e)
         }
@@ -176,7 +231,7 @@ class NovelWebSocketService(
     private suspend fun handleAudioInput(
         message: WebSocketMessage.AudioInput,
         outgoing: Channel<WebSocketMessage>,
-        userId: String
+        user: AuthenticatedUser
     ) {
         // ElevenLabs는 STT를 지원하지 않으므로 에러 메시지 반환
         outgoing.send(WebSocketMessage.Error("음성 입력은 현재 지원되지 않습니다. 텍스트로 입력해주세요."))
@@ -186,20 +241,35 @@ class NovelWebSocketService(
     private suspend fun handleTextInput(
         message: WebSocketMessage.TextInput,
         outgoing: Channel<WebSocketMessage>,
-        userId: String
+        user: AuthenticatedUser
     ) {
-        // 1. Conversation processing
+        // Get user profile for personalization
+        val userProfile = try {
+            getUserUseCase.execute(user.userId)
+        } catch (e: Exception) {
+            logger.error("Failed to fetch user profile", e)
+            null
+        }
+        
+        // 1. Conversation processing with user context
         val conversationResult = conversationAgent.process(
             ConversationInput(
-                userId = userId,
+                userId = user.userId,
                 message = message.text,
-                conversationId = message.conversationId
+                conversationId = message.conversationId,
+                userProfile = userProfile?.let {
+                    UserProfile(
+                        name = it.displayName,
+                        personalityTraits = it.personalityProfile?.traits ?: emptyMap(),
+                        preferredGenres = it.personalityProfile?.preferredGenres ?: emptySet()
+                    )
+                }
             )
         )
         
         // 2. Store context for story generation
         val context = conversationContexts.getOrPut(message.conversationId) {
-            ConversationContext(userId, message.conversationId)
+            ConversationContext(user.userId, message.conversationId)
         }
         context.messages.add(ChatMessage(ChatRole.User, message.text))
         context.messages.add(ChatMessage(ChatRole.Assistant, conversationResult.response))
@@ -213,27 +283,59 @@ class NovelWebSocketService(
         ))
         
         // 4. Generate TTS with emotion using ElevenLabs
-        val audioData = speechService.textToSpeech(
-            text = conversationResult.response,
-            emotion = conversationResult.emotion ?: "NEUTRAL",
-            voice = "korean-female-1"
-        )
-        
-        outgoing.send(WebSocketMessage.AudioOutput(
-            audioData = Base64.getEncoder().encodeToString(audioData),
-            emotion = conversationResult.emotion
-        ))
+        try {
+            val audioData = speechService.textToSpeech(
+                text = conversationResult.response,
+                emotion = conversationResult.emotion ?: "NEUTRAL",
+                voice = userProfile?.let { 
+                    // Select voice based on user preference (future feature)
+                    "korean-female-1" 
+                } ?: "korean-female-1"
+            )
+            
+            outgoing.send(WebSocketMessage.AudioOutput(
+                audioData = Base64.getEncoder().encodeToString(audioData),
+                emotion = conversationResult.emotion
+            ))
+        } catch (e: Exception) {
+            logger.error("Failed to generate TTS", e)
+            // Continue without audio if TTS fails
+        }
     }
     
     private suspend fun handleGenerateStory(
         message: WebSocketMessage.GenerateStory,
         outgoing: Channel<WebSocketMessage>,
-        userId: String
+        user: AuthenticatedUser
     ) {
+        // Check if user can generate story
+        val canGenerate = try {
+            checkStoryGenerationEligibilityUseCase.execute(user.userId)
+        } catch (e: Exception) {
+            logger.error("Failed to check story generation eligibility", e)
+            false
+        }
+        
+        if (!canGenerate) {
+            outgoing.send(WebSocketMessage.Error(
+                message = "일일 스토리 생성 한도를 초과했습니다. 프리미엄 구독을 고려해보세요.",
+                code = "STORY_LIMIT_EXCEEDED"
+            ))
+            return
+        }
+        
         val context = conversationContexts[message.conversationId]
         if (context == null) {
             outgoing.send(WebSocketMessage.Error("대화 내용을 찾을 수 없습니다"))
             return
+        }
+        
+        // Get user profile for personalized story generation
+        val userProfile = try {
+            getUserUseCase.execute(user.userId)
+        } catch (e: Exception) {
+            logger.error("Failed to fetch user profile for story generation", e)
+            null
         }
         
         // 1. Collect all conversation content
@@ -253,13 +355,19 @@ class NovelWebSocketService(
             )
         )
         
-        // 3. Story generation
+        // 3. Story generation with user preferences
         val storyResult = storyGenerationAgent.process(
             StoryGenerationInput(
                 conversationContext = conversationText,
                 emotionAnalysis = emotionResult,
-                userId = userId,
-                conversationHighlights = extractHighlights(context)
+                userId = user.userId,
+                conversationHighlights = extractHighlights(context),
+                userPreferences = userProfile?.personalityProfile?.let {
+                    StoryPreferences(
+                        preferredGenres = it.preferredGenres.map { genre -> genre },
+                        personalityTraits = it.traits
+                    )
+                }
             )
         )
         
@@ -271,6 +379,18 @@ class NovelWebSocketService(
             genre = storyResult.genre,
             emotionalArc = storyResult.emotionalArc
         ))
+        
+        // 5. Publish domain event for story generation
+        try {
+            eventPublisher.publish(
+                UserDomainEvent.StoryGenerated(
+                    userId = com.novel.domain.user.UserId(UUID.fromString(user.userId)),
+                    storyId = UUID.randomUUID()
+                )
+            )
+        } catch (e: Exception) {
+            logger.error("Failed to publish story generation event", e)
+        }
         
         // Clean up context
         conversationContexts.remove(message.conversationId)
