@@ -1,4 +1,52 @@
 services:
+  # Whisper STT Service
+  whisper-stt:
+    build:
+      context: ./python-services/whisper-stt
+      dockerfile: Dockerfile
+    container_name: novel-whisper-stt
+    restart: unless-stopped
+    ports:
+      - "5001:5001"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - WHISPER_MODEL=medium
+      - WHISPER_DEVICE=auto
+    volumes:
+      - whisper_cache:/root/.cache/whisper
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:5001/health')"]
+      interval: 30s
+      timeout: 30s
+      retries: 3
+      start_period: 60s
+
+  # Fish Speech TTS Service  
+  fish-speech:
+    build:
+      context: ./python-services/fish-speech
+      dockerfile: Dockerfile
+    container_name: novel-fish-speech
+    restart: unless-stopped
+    ports:
+      - "5002:5002"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - GRADIO_SERVER_NAME=0.0.0.0
+      - HF_HUB_CACHE=/checkpoints/.cache
+      - FISH_SPEECH_DEVICE=auto
+      - HF_TOKEN=${HF_TOKEN}
+    volumes:
+      - fish_models:/checkpoints
+      - fish_cache:/checkpoints/.cache
+      - fish_references:/references
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:5002/health')"]
+      interval: 30s
+      timeout: 60s
+      retries: 3
+      start_period: 180s
+
   postgres:
     image: postgres
     container_name: novel-postgres
@@ -25,6 +73,16 @@ services:
       - postgres
     volumes:
       - pgadmin_data:/var/lib/pgadmin
+
+  # Redis Cache for backend
+  redis:
+    image: redis:7-alpine
+    container_name: novel-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
 
   #  novel-backend:
   #    build: .
@@ -76,7 +134,17 @@ services:
 #      python -m tools.run_webui
 
 volumes:
+  whisper_cache:
+    driver: local
+  fish_models:
+    driver: local
+  fish_cache:
+    driver: local
+  fish_references:
+    driver: local
   postgres_data:
     driver: local
   pgadmin_data:
+    driver: local
+  redis_data:
     driver: local

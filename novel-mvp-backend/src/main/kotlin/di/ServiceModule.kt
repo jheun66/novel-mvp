@@ -11,6 +11,10 @@ import com.novel.infrastructure.services.PersonalityAnalyzerImpl
 import com.novel.infrastructure.user.UserRepositoryImpl
 import com.novel.middleware.OAuthTokenValidator
 import com.novel.services.JWTService
+import com.novel.services.FishSpeechService
+import com.novel.services.FishSpeechConfig
+import com.novel.services.WhisperSTTService
+import com.novel.services.WhisperConfig
 import io.ktor.client.*
 import io.ktor.client.engine.cio.*
 import io.ktor.client.plugins.contentnegotiation.*
@@ -18,6 +22,7 @@ import io.ktor.client.plugins.logging.*
 import io.ktor.serialization.kotlinx.json.*
 import kotlinx.serialization.json.Json
 import org.koin.dsl.module
+import io.github.cdimascio.dotenv.dotenv
 
 val serviceModule = module {
     // JWTService - JWTConfig에 의존
@@ -138,4 +143,29 @@ val serviceModule = module {
     // Event Handlers
     single<UserEventHandlers> { UserEventHandlers() }
     single<DailyStoryCountResetJob> { DailyStoryCountResetJob() }
+    
+    // TTS/STT Services
+    single<FishSpeechConfig> {
+        val dotenv = dotenv { ignoreIfMissing = true }
+        val fishSpeechUrl = dotenv["FISH_SPEECH_URL"]
+            ?: System.getenv("FISH_SPEECH_URL")
+            ?: "http://localhost:5002"
+        FishSpeechConfig(baseUrl = fishSpeechUrl)
+    }
+    
+    single<FishSpeechService> {
+        FishSpeechService(get<FishSpeechConfig>(), get<HttpClient>())
+    }
+    
+    single<WhisperConfig> {
+        val dotenv = dotenv { ignoreIfMissing = true }
+        val whisperSTTUrl = dotenv["WHISPER_STT_URL"]
+            ?: System.getenv("WHISPER_STT_URL")
+            ?: "http://localhost:5001"
+        WhisperConfig(baseUrl = whisperSTTUrl)
+    }
+    
+    single<WhisperSTTService> {
+        WhisperSTTService(get<WhisperConfig>(), get<HttpClient>())
+    }
 }

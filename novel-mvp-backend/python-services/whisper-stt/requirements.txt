@@ -1,0 +1,22 @@
+# FastAPI and server dependencies
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+
+# Whisper and audio processing
+openai-whisper==20231117
+torch>=2.0.0
+torchaudio>=2.0.0
+numpy>=1.24.0
+numba
+librosa>=0.10.0
+soundfile>=0.12.0
+
+# Utility libraries
+tiktoken>=0.5.0
+tqdm>=4.66.0
+more-itertools>=10.0.0
+requests>=2.31.0
+
+# Optional performance optimizations
+triton>=2.0.0;platform_machine=="x86_64" and platform_system=="Linux"

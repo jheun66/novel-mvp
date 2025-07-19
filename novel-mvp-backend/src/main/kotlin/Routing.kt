@@ -5,8 +5,10 @@ import com.novel.agents.EmotionAnalysisAgent
 import com.novel.agents.StoryGenerationAgent
 import com.novel.agents.base.SimpleAgentCommunicator
 import com.novel.routes.userRoutes
-import com.novel.services.ElevenLabsConfig
-import com.novel.services.ElevenLabsService
+import com.novel.services.FishSpeechConfig
+import com.novel.services.FishSpeechService
+import com.novel.services.WhisperConfig
+import com.novel.services.WhisperSTTService
 import com.novel.services.NovelWebSocketService
 import io.github.cdimascio.dotenv.dotenv
 import io.ktor.client.*
@@ -31,10 +33,15 @@ fun Application.configureRouting() {
         ?: System.getenv("OPENAI_API_KEY")
         ?: throw IllegalStateException("OPENAI_API_KEY not set in .env file or environment variables")
 
-    // ElevenLabs API Key - .env 파일 또는 시스템 환경변수에서 읽기
-    val elevenLabsApiKey = dotenv["ELEVENLABS_API_KEY"]
-        ?: System.getenv("ELEVENLABS_API_KEY")
-        ?: throw IllegalStateException("ELEVENLABS_API_KEY not set in .env file or environment variables")
+    // Fish Speech URL - .env 파일 또는 시스템 환경변수에서 읽기 (기본값 제공)
+    val fishSpeechUrl = dotenv["FISH_SPEECH_URL"]
+        ?: System.getenv("FISH_SPEECH_URL")
+        ?: "http://localhost:5002" // Default for local development
+
+    // Whisper STT URL - .env 파일 또는 시스템 환경변수에서 읽기 (기본값 제공)
+    val whisperSTTUrl = dotenv["WHISPER_STT_URL"]
+        ?: System.getenv("WHISPER_STT_URL")
+        ?: "http://localhost:5001" // Default for local development
 
     // Gemini API Key - .env 파일 또는 시스템 환경변수에서 읽기
     val geminiApiKey = dotenv["GEMINI_API_KEY"] 
@@ -45,8 +52,11 @@ fun Application.configureRouting() {
 
     // Initialize services
     val communicator = SimpleAgentCommunicator()
-    val elevenLabsConfig = ElevenLabsConfig(apiKey = elevenLabsApiKey)
-    val speechService = ElevenLabsService(elevenLabsConfig, httpClient)
+    val fishSpeechConfig = FishSpeechConfig(baseUrl = fishSpeechUrl)
+    val speechService = FishSpeechService(fishSpeechConfig, httpClient)
+    
+    val whisperConfig = WhisperConfig(baseUrl = whisperSTTUrl)
+    val sttService = WhisperSTTService(whisperConfig, httpClient)
 
     // Initialize agents
     val conversationAgent = ConversationAgent(openAiApiKey, communicator)
@@ -58,6 +68,7 @@ fun Application.configureRouting() {
         emotionAnalysisAgent,
         storyGenerationAgent,
         speechService,
+        sttService,
         communicator
     )
 

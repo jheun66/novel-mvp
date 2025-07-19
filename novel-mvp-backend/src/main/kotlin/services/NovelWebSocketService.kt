@@ -26,7 +26,10 @@ sealed class WebSocketMessage {
     @SerialName("AudioInput")
     data class AudioInput(
         val audioData: String,  // Base64 encoded audio
-        val format: String = "pcm16"
+        val format: String = "wav",
+        val sampleRate: Int = 16000,
+        val conversationId: String = UUID.randomUUID().toString(),
+        val isStreaming: Boolean = false  // For real-time streaming
     ) : WebSocketMessage()
 
     @Serializable
@@ -46,8 +49,11 @@ sealed class WebSocketMessage {
     @SerialName("AudioOutput")
     data class AudioOutput(
         val audioData: String,  // Base64 encoded audio
-        val format: String = "pcm16",
-        val emotion: String? = null
+        val format: String = "wav",
+        val sampleRate: Int = 22050,
+        val emotion: String? = null,
+        val duration: Float? = null,  // Audio duration in seconds
+        val audioType: String = "chat"  // "chat" or "story"
     ) : WebSocketMessage()
 
     @Serializable
@@ -66,7 +72,10 @@ sealed class WebSocketMessage {
         val content: String,
         val emotion: String,
         val genre: String,
-        val emotionalArc: String
+        val emotionalArc: String,
+        val audioData: String? = null,  // Base64 encoded audio for story narration
+        val audioFormat: String = "wav",
+        val audioSampleRate: Int = 22050
     ) : WebSocketMessage()
 
     @Serializable
@@ -94,7 +103,8 @@ class NovelWebSocketService(
     private val conversationAgent: ConversationAgent,
     private val emotionAnalysisAgent: EmotionAnalysisAgent,
     private val storyGenerationAgent: StoryGenerationAgent,
-    private val speechService: ElevenLabsService,
+    private val fishSpeechService: FishSpeechService,
+    private val whisperSTTService: WhisperSTTService,
     private val communicator: AgentCommunicator
 ) : KoinComponent {
     private val logger = LoggerFactory.getLogger(NovelWebSocketService::class.java)
@@ -225,9 +235,41 @@ class NovelWebSocketService(
         outgoing: Channel<WebSocketMessage>,
         user: AuthenticatedUser
     ) {
-        // ElevenLabs는 STT를 지원하지 않으므로 에러 메시지 반환
-        outgoing.send(WebSocketMessage.Error("음성 입력은 현재 지원되지 않습니다. 텍스트로 입력해주세요."))
-        return
+        try {
+            // Convert Base64 audio data to ByteArray
+            val audioBytes = try {
+                java.util.Base64.getDecoder().decode(message.audioData)
+            } catch (e: Exception) {
+                logger.error("Failed to decode Base64 audio data", e)
+                outgoing.send(WebSocketMessage.Error("오디오 데이터 형식이 올바르지 않습니다."))
+                return
+            }
+            
+            // Transcribe audio using Whisper STT service
+            val transcriptionResult = whisperSTTService.transcribeAudio(
+                audioBytes = audioBytes,
+                language = "ko",
+                enableTimestamps = false
+            )
+            
+            val transcribedText = transcriptionResult.text
+            if (transcribedText.isBlank()) {
+                outgoing.send(WebSocketMessage.Error("음성을 인식할 수 없습니다. 더 명확하게 말씀해주세요."))
+                return
+            }
+            
+            // Process the transcribed text as a regular text input
+            val textInput = WebSocketMessage.TextInput(
+                text = transcribedText,
+                conversationId = message.conversationId
+            )
+            
+            handleTextInput(textInput, outgoing, user)
+            
+        } catch (e: Exception) {
+            logger.error("Error processing audio input", e)
+            outgoing.send(WebSocketMessage.Error("음성 처리 중 오류가 발생했습니다: ${e.message}"))
+        }
     }
     
     private suspend fun handleTextInput(
@@ -274,21 +316,26 @@ class NovelWebSocketService(
             readyForStory = conversationResult.shouldGenerateStory
         ))
         
-        // 4. Generate TTS with emotion using ElevenLabs
+        // 4. Generate TTS with emotion using Fish Speech
         try {
-            val audioData = speechService.textToSpeech(
+            val ttsResult = fishSpeechService.generateChatTTS(
                 text = conversationResult.response,
                 emotion = conversationResult.emotion ?: "NEUTRAL",
-                voice = userProfile?.let { 
-                    // Select voice based on user preference (future feature)
-                    "korean-female-1" 
-                } ?: "korean-female-1"
+                speed = 1.2f
             )
             
-            outgoing.send(WebSocketMessage.AudioOutput(
-                audioData = Base64.getEncoder().encodeToString(audioData),
-                emotion = conversationResult.emotion
-            ))
+            if (ttsResult.isSuccess) {
+                val audioData = ttsResult.getOrNull()
+                if (audioData != null) {
+                    outgoing.send(WebSocketMessage.AudioOutput(
+                        audioData = Base64.getEncoder().encodeToString(audioData),
+                        emotion = conversationResult.emotion,
+                        audioType = "chat"
+                    ))
+                }
+            } else {
+                logger.error("Failed to generate chat TTS: ${ttsResult.exceptionOrNull()?.message}")
+            }
         } catch (e: Exception) {
             logger.error("Failed to generate TTS", e)
             // Continue without audio if TTS fails
@@ -363,16 +410,39 @@ class NovelWebSocketService(
             )
         )
         
-        // 4. Send story
+        // 4. Generate story narration TTS
+        var storyAudioData: String? = null
+        try {
+            val storyTTSResult = fishSpeechService.generateStoryTTS(
+                text = storyResult.story,
+                emotion = emotionResult.primaryEmotion,
+                speed = 1.0f,
+                addPauses = true
+            )
+            
+            if (storyTTSResult.isSuccess) {
+                val audioData = storyTTSResult.getOrNull()
+                if (audioData != null) {
+                    storyAudioData = Base64.getEncoder().encodeToString(audioData)
+                }
+            } else {
+                logger.error("Failed to generate story TTS: ${storyTTSResult.exceptionOrNull()?.message}")
+            }
+        } catch (e: Exception) {
+            logger.error("Failed to generate story TTS", e)
+        }
+
+        // 5. Send story with optional audio
         outgoing.send(WebSocketMessage.StoryOutput(
             title = storyResult.title,
             content = storyResult.story,
             emotion = emotionResult.primaryEmotion,
             genre = storyResult.genre,
-            emotionalArc = storyResult.emotionalArc
+            emotionalArc = storyResult.emotionalArc,
+            audioData = storyAudioData
         ))
         
-        // 5. Publish domain event for story generation
+        // 6. Publish domain event for story generation
         try {
             eventPublisher.publish(
                 UserDomainEvent.StoryGenerated(

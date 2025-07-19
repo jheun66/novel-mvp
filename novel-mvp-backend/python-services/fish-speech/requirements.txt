@@ -1,0 +1,15 @@
+# Fish Speech Additional Dependencies for Korean Support
+# Base Fish Speech comes with all core dependencies
+
+# Korean language processing
+hangul-romanize>=1.0.0
+g2pkk>=0.1.1  
+jamo>=0.4.1
+
+# Additional utilities for Korean TTS
+hanja>=0.13.0
+konlpy>=0.6.0
+
+# Development and testing
+requests>=2.31.0
+pytest>=7.4.0
