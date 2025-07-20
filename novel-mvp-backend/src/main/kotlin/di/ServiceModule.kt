@@ -55,7 +55,12 @@ val serviceModule = module {
             // Logging All Requests and Responses
             install(Logging) {
                 logger = Logger.DEFAULT
-                level = LogLevel.ALL
+                level = LogLevel.INFO
+                filter { request ->
+                    // Exclude body logging for Whisper STT endpoint to avoid binary data logging
+                    !request.url.toString().contains("/v1/audio/transcriptions")
+                }
+                sanitizeHeader { name -> name.lowercase() in listOf("authorization", "cookie") }
             }
         }
     }

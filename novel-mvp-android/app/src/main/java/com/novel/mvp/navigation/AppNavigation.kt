@@ -80,7 +80,7 @@ fun AppNavigation(
             val tokenStorage = AppModule.provideTokenStorage(context)
             val webSocketService = AppModule.provideStoryWebSocketService(httpClient, tokenStorage)
             val storyRepository = AppModule.provideStoryRepository(webSocketService)
-            val storyViewModel = AppModule.provideStoryViewModel(storyRepository)
+            val storyViewModel = AppModule.provideStoryViewModel(storyRepository, context)
             
             StoryScreen(
                 viewModel = storyViewModel,

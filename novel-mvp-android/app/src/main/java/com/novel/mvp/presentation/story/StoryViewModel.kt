@@ -1,5 +1,9 @@
 package com.novel.mvp.presentation.story
 
+import android.Manifest
+import android.content.Context
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.novel.mvp.data.model.*
@@ -10,7 +14,8 @@ import kotlinx.coroutines.launch
 import java.util.*
 
 class StoryViewModel(
-    private val storyRepository: StoryRepository
+    private val storyRepository: StoryRepository,
+    private val context: Context
 ) : ViewModel() {
 
     private val _viewState = MutableStateFlow(StoryViewState())
@@ -22,6 +27,7 @@ class StoryViewModel(
     private var currentConversationId: String = UUID.randomUUID().toString()
 
     init {
+        checkAudioPermission()
         observeWebSocketState()
         observeWebSocketMessages()
         connectWebSocket()
@@ -32,8 +38,13 @@ class StoryViewModel(
             is StoryIntent.ConnectWebSocket -> connectWebSocket()
             is StoryIntent.DisconnectWebSocket -> disconnectWebSocket()
             is StoryIntent.SendMessage -> sendMessage(intent.text)
+            is StoryIntent.SendAudioMessage -> sendAudioMessage(intent.audioData, intent.conversationId)
             is StoryIntent.GenerateStory -> generateStory(intent.conversationId)
             is StoryIntent.ClearMessages -> clearMessages()
+            is StoryIntent.StartRecording -> startRecording()
+            is StoryIntent.StopRecording -> stopRecording()
+            is StoryIntent.RequestAudioPermission -> requestAudioPermission()
+            is StoryIntent.SendAudioEchoTest -> sendAudioEchoTest(intent.audioData, intent.conversationId)
         }
     }
 
@@ -53,22 +64,45 @@ class StoryViewModel(
             // Observe text messages
             launch {
                 storyRepository.textMessages.collect { message ->
-                    addConversationMessage(
-                        ConversationMessage(
-                            id = UUID.randomUUID().toString(),
-                            text = message.text,
-                            isFromUser = false,
-                            emotion = message.emotion,
-                            suggestedQuestions = message.suggestedQuestions
+                    // Check if this is a transcription result
+                    if (_viewState.value.transcribingAudio) {
+                        // Add the transcribed voice message to conversation
+                        addConversationMessage(
+                            ConversationMessage(
+                                id = UUID.randomUUID().toString(),
+                                text = message.text,
+                                isFromUser = true,
+                                inputType = MessageInputType.VOICE,
+                                transcriptionSource = message.text
+                            )
                         )
-                    )
+                        
+                        // Reset transcribing state and show transcription
+                        _viewState.value = _viewState.value.copy(
+                            transcribingAudio = false,
+                            pendingTranscription = message.text,
+                            isLoading = true
+                        )
+                    } else {
+                        // Regular AI response
+                        addConversationMessage(
+                            ConversationMessage(
+                                id = UUID.randomUUID().toString(),
+                                text = message.text,
+                                isFromUser = false,
+                                emotion = message.emotion,
+                                suggestedQuestions = message.suggestedQuestions
+                            )
+                        )
 
-                    _viewState.value = _viewState.value.copy(
-                        isReadyForStory = message.readyForStory,
-                        isLoading = false
-                    )
+                        _viewState.value = _viewState.value.copy(
+                            isReadyForStory = message.readyForStory,
+                            isLoading = false,
+                            pendingTranscription = null
+                        )
 
-                    _sideEffect.emit(StorySideEffect.ScrollToBottom)
+                        _sideEffect.emit(StorySideEffect.ScrollToBottom)
+                    }
                 }
             }
             
@@ -193,6 +227,75 @@ class StoryViewModel(
         _viewState.value = _viewState.value.copy(
             conversations = currentMessages
         )
+    }
+
+    private fun checkAudioPermission() {
+        val hasPermission = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+
+        _viewState.value = _viewState.value.copy(hasAudioPermission = hasPermission)
+    }
+
+    private fun requestAudioPermission() {
+        viewModelScope.launch {
+            _sideEffect.emit(StorySideEffect.RequestAudioPermission)
+        }
+    }
+
+    private fun startRecording() {
+        if (!_viewState.value.hasAudioPermission) {
+            viewModelScope.launch {
+                _sideEffect.emit(StorySideEffect.RequestAudioPermission)
+            }
+            return
+        }
+
+        _viewState.value = _viewState.value.copy(isRecording = true)
+        viewModelScope.launch {
+            _sideEffect.emit(StorySideEffect.StartAudioRecording)
+        }
+    }
+
+    private fun stopRecording() {
+        _viewState.value = _viewState.value.copy(isRecording = false)
+        viewModelScope.launch {
+            _sideEffect.emit(StorySideEffect.StopAudioRecording)
+        }
+    }
+
+    private fun sendAudioMessage(audioData: ByteArray, conversationId: String) {
+        // Set transcribing state
+        _viewState.value = _viewState.value.copy(
+            transcribingAudio = true,
+            pendingTranscription = null,
+            isLoading = true
+        )
+
+        viewModelScope.launch {
+            try {
+                storyRepository.sendAudioMessage(audioData, conversationId)
+            } catch (e: Exception) {
+                _viewState.value = _viewState.value.copy(
+                    error = e.message ?: "음성 메시지 전송에 실패했습니다",
+                    transcribingAudio = false,
+                    isLoading = false
+                )
+                _sideEffect.emit(StorySideEffect.ShowError(e.message ?: "음성 메시지 전송에 실패했습니다"))
+            }
+        }
+    }
+
+    private fun sendAudioEchoTest(audioData: ByteArray, conversationId: String) {
+        viewModelScope.launch {
+            try {
+                storyRepository.sendAudioEchoTest(audioData, conversationId)
+                _sideEffect.emit(StorySideEffect.ShowError("오디오 에코 테스트 전송됨 (${audioData.size} bytes)"))
+            } catch (e: Exception) {
+                _sideEffect.emit(StorySideEffect.ShowError("에코 테스트 실패: ${e.message}"))
+            }
+        }
     }
 
     override fun onCleared() {

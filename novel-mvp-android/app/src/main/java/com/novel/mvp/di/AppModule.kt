@@ -55,8 +55,8 @@ object AppModule {
         return LoginViewModel(authRepository)
     }
     
-    fun provideStoryViewModel(storyRepository: StoryRepository): StoryViewModel {
-        return StoryViewModel(storyRepository)
+    fun provideStoryViewModel(storyRepository: StoryRepository, context: Context): StoryViewModel {
+        return StoryViewModel(storyRepository, context)
     }
     
     fun provideWebSocketTestViewModel(storyRepository: StoryRepository): WebSocketTestViewModel {

@@ -21,7 +21,7 @@ class StoryWebSocketService(
 ) {
     companion object {
         private const val TAG = "StoryWebSocketService"
-        private const val WS_URL = "ws://10.0.2.2:8080/ws/novel"
+        private const val WS_URL = "ws://192.168.219.114:8080/ws/novel"
     }
     
     private val json = Json {
@@ -104,6 +104,27 @@ class StoryWebSocketService(
     
     suspend fun sendTextMessage(text: String, conversationId: String = UUID.randomUUID().toString()) {
         val message = WebSocketMessage.TextInput(text, conversationId)
+        sendMessage(message)
+    }
+    
+    suspend fun sendAudioMessage(audioData: ByteArray, conversationId: String = UUID.randomUUID().toString()) {
+        val base64Audio = android.util.Base64.encodeToString(audioData, android.util.Base64.NO_WRAP)
+        val message = WebSocketMessage.AudioInput(
+            audioData = base64Audio,
+            conversationId = conversationId,
+            format = "wav",
+            sampleRate = 16000,
+            isStreaming = false
+        )
+        sendMessage(message)
+    }
+    
+    suspend fun sendAudioEchoTest(audioData: ByteArray, conversationId: String = UUID.randomUUID().toString()) {
+        val base64Audio = android.util.Base64.encodeToString(audioData, android.util.Base64.NO_WRAP)
+        val message = WebSocketMessage.AudioEchoTest(
+            audioData = base64Audio,
+            conversationId = conversationId
+        )
         sendMessage(message)
     }
     

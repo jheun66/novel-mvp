@@ -42,6 +42,14 @@ class StoryRepository(
         webSocketService.sendTextMessage(text, conversationId)
     }
     
+    suspend fun sendAudioMessage(audioData: ByteArray, conversationId: String) {
+        webSocketService.sendAudioMessage(audioData, conversationId)
+    }
+    
+    suspend fun sendAudioEchoTest(audioData: ByteArray, conversationId: String) {
+        webSocketService.sendAudioEchoTest(audioData, conversationId)
+    }
+    
     suspend fun generateStory(conversationId: String) {
         webSocketService.generateStory(conversationId)
     }

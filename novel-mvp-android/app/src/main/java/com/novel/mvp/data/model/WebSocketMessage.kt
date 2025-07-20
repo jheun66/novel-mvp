@@ -2,6 +2,7 @@ package com.novel.mvp.data.model
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import java.util.UUID
 
 @Serializable
 sealed class WebSocketMessage {
@@ -9,7 +10,10 @@ sealed class WebSocketMessage {
     @SerialName("AudioInput")
     data class AudioInput(
         val audioData: String,  // Base64 encoded audio
-        val format: String = "pcm16"
+        val format: String = "wav",
+        val sampleRate: Int = 16000,
+        val conversationId: String,
+        val isStreaming: Boolean = false
     ) : WebSocketMessage()
 
     @Serializable
@@ -29,8 +33,11 @@ sealed class WebSocketMessage {
     @SerialName("AudioOutput")
     data class AudioOutput(
         val audioData: String,  // Base64 encoded audio
-        val format: String = "pcm16",
-        val emotion: String? = null
+        val format: String = "wav",
+        val sampleRate: Int = 22050,
+        val emotion: String? = null,
+        val duration: Float? = null,
+        val audioType: String = "chat"
     ) : WebSocketMessage()
 
     @Serializable
@@ -70,5 +77,12 @@ sealed class WebSocketMessage {
     data class AuthResponse(
         val success: Boolean,
         val message: String? = null
+    ) : WebSocketMessage()
+    
+    @Serializable
+    @SerialName("AudioEchoTest")
+    data class AudioEchoTest(
+        val audioData: String,  // Base64 encoded audio to echo back
+        val conversationId: String = UUID.randomUUID().toString()
     ) : WebSocketMessage()
 }

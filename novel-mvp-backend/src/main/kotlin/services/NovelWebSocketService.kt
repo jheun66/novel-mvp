@@ -97,6 +97,13 @@ sealed class WebSocketMessage {
         val success: Boolean,
         val message: String? = null
     ) : WebSocketMessage()
+    
+    @Serializable
+    @SerialName("AudioEchoTest")
+    data class AudioEchoTest(
+        val audioData: String,  // Base64 encoded audio to echo back
+        val conversationId: String = UUID.randomUUID().toString()
+    ) : WebSocketMessage()
 }
 
 class NovelWebSocketService(
@@ -212,6 +219,9 @@ class NovelWebSocketService(
                         is WebSocketMessage.GenerateStory -> {
                             handleGenerateStory(message, outgoing, user)
                         }
+                        is WebSocketMessage.AudioEchoTest -> {
+                            handleAudioEchoTest(message, outgoing, user)
+                        }
                         else -> {}
                     }
                 } catch (e: Exception) {
@@ -245,16 +255,37 @@ class NovelWebSocketService(
                 return
             }
             
+            logger.info("Processing audio message - Size: ${audioBytes.size} bytes, Format: ${message.format}, Sample Rate: ${message.sampleRate}")
+            
+            // Validate audio data
+            if (audioBytes.isEmpty()) {
+                logger.error("Decoded audio data is empty")
+                outgoing.send(WebSocketMessage.Error("오디오 데이터가 비어있습니다."))
+                return
+            }
+            
+            // Log audio header for debugging
+            val audioHeader = audioBytes.take(12).joinToString(" ") { "%02x".format(it) }
+            logger.debug("Audio header: $audioHeader")
+            
             // Transcribe audio using Whisper STT service
-            val transcriptionResult = whisperSTTService.transcribeAudio(
-                audioBytes = audioBytes,
-                language = "ko",
-                enableTimestamps = false
-            )
+            val transcriptionResult = try {
+                whisperSTTService.transcribeAudio(
+                    audioBytes = audioBytes,
+                    language = "ko",
+                    enableTimestamps = false
+                )
+            } catch (e: Exception) {
+                logger.error("Whisper transcription failed: ${e.message}", e)
+                outgoing.send(WebSocketMessage.Error("음성 인식 서비스에 오류가 발생했습니다: ${e.message}"))
+                return
+            }
             
             val transcribedText = transcriptionResult.text
+            logger.info("Transcription result: '$transcribedText' (${transcribedText.length} chars)")
+            
             if (transcribedText.isBlank()) {
-                outgoing.send(WebSocketMessage.Error("음성을 인식할 수 없습니다. 더 명확하게 말씀해주세요."))
+                outgoing.send(WebSocketMessage.Error("음성을 인식할 수 없습니다. 더 명확하게 말씀해주세요. (오디오가 너무 짧거나 조용할 수 있습니다)"))
                 return
             }
             
@@ -269,6 +300,33 @@ class NovelWebSocketService(
         } catch (e: Exception) {
             logger.error("Error processing audio input", e)
             outgoing.send(WebSocketMessage.Error("음성 처리 중 오류가 발생했습니다: ${e.message}"))
+        }
+    }
+    
+    private suspend fun handleAudioEchoTest(
+        message: WebSocketMessage.AudioEchoTest,
+        outgoing: Channel<WebSocketMessage>,
+        user: AuthenticatedUser
+    ) {
+        try {
+            logger.info("Audio echo test requested by user ${user.userId} - Audio size: ${message.audioData.length} chars (Base64)")
+            
+            // Simply echo back the audio data as an AudioOutput message
+            val audioOutput = WebSocketMessage.AudioOutput(
+                audioData = message.audioData,
+                format = "wav",
+                sampleRate = 16000,
+                emotion = "neutral",
+                duration = 2.0f, // Estimate 2 seconds
+                audioType = "echo_test"
+            )
+            
+            outgoing.send(audioOutput)
+            logger.info("Audio echo test completed - sent back ${message.audioData.length} chars of audio data")
+            
+        } catch (e: Exception) {
+            logger.error("Error processing audio echo test", e)
+            outgoing.send(WebSocketMessage.Error("오디오 에코 테스트 중 오류가 발생했습니다: ${e.message}"))
         }
     }
     

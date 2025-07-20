@@ -88,10 +88,21 @@ class WhisperSTTService(
         enableTimestamps: Boolean = config.enableTimestamps
     ): TranscriptionResponse {
         return try {
-            if (audioBytes.size > MAX_AUDIO_SIZE) {
-                logger.warn("Audio size ${audioBytes.size} exceeds maximum ${MAX_AUDIO_SIZE}")
-                return TranscriptionResponse(text = "", language = language)
+            logger.info("Starting transcription - Audio size: ${audioBytes.size} bytes, Language: $language")
+            
+            if (audioBytes.isEmpty()) {
+                logger.error("Audio bytes is empty")
+                throw IllegalArgumentException("Audio data is empty")
             }
+            
+            if (audioBytes.size > MAX_AUDIO_SIZE) {
+                logger.error("Audio size ${audioBytes.size} exceeds maximum ${MAX_AUDIO_SIZE}")
+                throw IllegalArgumentException("Audio size exceeds maximum allowed size")
+            }
+            
+            // Log first few bytes to debug audio format
+            val audioHeader = audioBytes.take(12).joinToString(" ") { "%02x".format(it) }
+            logger.debug("Audio header bytes: $audioHeader")
 
             val response = httpClient.submitFormWithBinaryData(
                 url = "${config.baseUrl}/v1/audio/transcriptions",
@@ -110,17 +121,28 @@ class WhisperSTTService(
                 }
             )
 
+            logger.info("Whisper API response status: ${response.status}, Content-Type: ${response.headers[HttpHeaders.ContentType]}")
+
             if (response.status.isSuccess()) {
+                val responseText = response.body<String>()
+                logger.debug("Raw Whisper response: $responseText")
+                
                 val result = response.body<TranscriptionResponse>()
-                logger.info("Transcription successful: '${result.text.take(50)}...'")
+                logger.info("Transcription successful: '${result.text}' (${result.text.length} chars)")
+                
+                if (result.text.isBlank()) {
+                    logger.warn("Whisper returned empty transcription - audio may be silent or unrecognizable")
+                }
+                
                 result
             } else {
-                logger.error("Transcription failed with status: ${response.status}")
-                TranscriptionResponse(text = "", language = language)
+                val errorBody = try { response.body<String>() } catch (e: Exception) { "Unable to read error body" }
+                logger.error("Transcription failed with status: ${response.status}, body: $errorBody")
+                throw RuntimeException("Whisper API returned ${response.status}: $errorBody")
             }
         } catch (e: Exception) {
-            logger.error("Transcription error", e)
-            TranscriptionResponse(text = "", language = language)
+            logger.error("Transcription error: ${e.message}", e)
+            throw e // Re-throw to let caller handle the error properly
         }
     }
 
@@ -207,12 +229,17 @@ class WhisperSTTService(
      * Quick transcription for short audio clips (conversation)
      */
     suspend fun quickTranscribe(audioBytes: ByteArray): String {
-        val result = transcribeAudio(
-            audioBytes = audioBytes,
-            language = config.language,
-            enableTimestamps = false
-        )
-        return result.text.trim()
+        return try {
+            val result = transcribeAudio(
+                audioBytes = audioBytes,
+                language = config.language,
+                enableTimestamps = false
+            )
+            result.text.trim()
+        } catch (e: Exception) {
+            logger.error("Quick transcription failed: ${e.message}", e)
+            throw e // Let the caller handle the error
+        }
     }
 
     /**

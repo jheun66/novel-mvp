@@ -11,6 +11,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import android.Manifest
 import androidx.compose.material3.*
 import androidx.compose.material3.adaptive.WindowAdaptiveInfo
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
@@ -26,7 +29,11 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.novel.mvp.data.model.WebSocketMessage
 import com.novel.mvp.data.websocket.ConnectionState
+import com.novel.mvp.presentation.story.components.TranscriptionDisplay
+import com.novel.mvp.presentation.story.components.VoiceInputButton
+import com.novel.mvp.utils.AudioPlayer
 import kotlinx.coroutines.launch
+import androidx.compose.ui.platform.LocalContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -37,10 +44,25 @@ fun StoryScreen(
     val viewState by viewModel.viewState.collectAsStateWithLifecycle()
     val sideEffect by viewModel.sideEffect.collectAsStateWithLifecycle(initialValue = null)
     val windowAdaptiveInfo = currentWindowAdaptiveInfo()
+    val context = LocalContext.current
     
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
+    val audioPlayer = remember { AudioPlayer(context) }
+    
+    // Audio permission launcher
+    val audioPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            viewModel.handleIntent(StoryIntent.StartRecording)
+        } else {
+            coroutineScope.launch {
+                snackbarHostState.showSnackbar("음성 입력을 위해 오디오 권한이 필요합니다.")
+            }
+        }
+    }
     
     // Handle side effects
     LaunchedEffect(sideEffect) {
@@ -55,9 +77,39 @@ fun StoryScreen(
                     }
                 }
                 is StorySideEffect.PlayAudio -> {
-                    // TODO: Implement audio playback
+                    coroutineScope.launch {
+                        try {
+                            val result = audioPlayer.playAudioFromBase64(effect.audioData)
+                            when (result) {
+                                is com.novel.mvp.utils.PlaybackResult.Success -> {
+                                    snackbarHostState.showSnackbar("오디오 재생 시작됨")
+                                }
+                                is com.novel.mvp.utils.PlaybackResult.Error -> {
+                                    snackbarHostState.showSnackbar("오디오 재생 실패: ${result.message}")
+                                }
+                            }
+                        } catch (e: Exception) {
+                            snackbarHostState.showSnackbar("오디오 재생 오류: ${e.message}")
+                        }
+                    }
+                }
+                is StorySideEffect.RequestAudioPermission -> {
+                    audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                }
+                is StorySideEffect.StartAudioRecording -> {
+                    // Audio recording is handled by VoiceInputButton component
+                }
+                is StorySideEffect.StopAudioRecording -> {
+                    // Audio recording stop is handled by VoiceInputButton component
                 }
             }
+        }
+    }
+    
+    // Cleanup audio player when screen is disposed
+    DisposableEffect(Unit) {
+        onDispose {
+            audioPlayer.stopPlayback()
         }
     }
 
@@ -91,6 +143,12 @@ fun StoryScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
+            // Transcription Display
+            TranscriptionDisplay(
+                transcription = viewState.pendingTranscription,
+                isTranscribing = viewState.transcribingAudio
+            )
+            
             // Story Display Section with adaptive layout
             AnimatedVisibility(
                 visible = viewState.currentStory != null,
@@ -216,8 +274,25 @@ fun StoryScreen(
             // Message Input Section
             MessageInputSection(
                 enabled = viewState.connectionState == ConnectionState.AUTHENTICATED && !viewState.isLoading,
+                isRecording = viewState.isRecording,
+                hasAudioPermission = viewState.hasAudioPermission,
                 onSendMessage = { message ->
                     viewModel.handleIntent(StoryIntent.SendMessage(message))
+                },
+                onStartRecording = {
+                    viewModel.handleIntent(StoryIntent.StartRecording)
+                },
+                onStopRecording = {
+                    viewModel.handleIntent(StoryIntent.StopRecording)
+                },
+                onRequestAudioPermission = {
+                    viewModel.handleIntent(StoryIntent.RequestAudioPermission)
+                },
+                onAudioRecorded = { audioData ->
+                    viewModel.handleIntent(StoryIntent.SendAudioMessage(audioData, viewState.conversationId))
+                },
+                onAudioEchoTest = { audioData ->
+                    viewModel.handleIntent(StoryIntent.SendAudioEchoTest(audioData, viewState.conversationId))
                 }
             )
         }
@@ -401,6 +476,35 @@ private fun ConversationMessageItem(
                 Column(
                     modifier = Modifier.padding(12.dp)
                 ) {
+                    // Voice input indicator
+                    if (message.inputType == MessageInputType.VOICE) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Default.Mic,
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp),
+                                tint = if (message.isFromUser) {
+                                    MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.7f)
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                }
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "음성 입력",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (message.isFromUser) {
+                                    MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.7f)
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                }
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
+                    
                     Text(
                         text = message.text,
                         style = MaterialTheme.typography.bodyMedium,
@@ -479,9 +583,17 @@ private fun ConversationMessageItem(
 @Composable
 private fun MessageInputSection(
     enabled: Boolean,
-    onSendMessage: (String) -> Unit
+    isRecording: Boolean,
+    hasAudioPermission: Boolean,
+    onSendMessage: (String) -> Unit,
+    onStartRecording: () -> Unit,
+    onStopRecording: () -> Unit,
+    onRequestAudioPermission: () -> Unit,
+    onAudioRecorded: (ByteArray) -> Unit,
+    onAudioEchoTest: (ByteArray) -> Unit
 ) {
     var message by remember { mutableStateOf("") }
+    var echoTestMode by remember { mutableStateOf(false) }
     
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -501,12 +613,40 @@ private fun MessageInputSection(
                 onValueChange = { message = it },
                 modifier = Modifier.weight(1f),
                 placeholder = { Text("메시지를 입력하세요...") },
-                enabled = enabled,
+                enabled = enabled && !isRecording,
                 maxLines = 4,
                 shape = RoundedCornerShape(24.dp)
             )
             
             Spacer(modifier = Modifier.width(8.dp))
+            
+            // Voice Input Button
+            VoiceInputButton(
+                isRecording = isRecording,
+                hasPermission = hasAudioPermission,
+                enabled = enabled,
+                onStartRecording = onStartRecording,
+                onStopRecording = onStopRecording,
+                onRequestPermission = onRequestAudioPermission,
+                onAudioRecorded = if (echoTestMode) onAudioEchoTest else onAudioRecorded,
+                modifier = Modifier.padding(end = 4.dp)
+            )
+            
+            // Echo Test Toggle Button
+            IconButton(
+                onClick = {
+                    echoTestMode = !echoTestMode
+                },
+                enabled = enabled && !isRecording,
+                modifier = Modifier.size(40.dp)
+            ) {
+                Icon(
+                    if (echoTestMode) Icons.Default.Check else Icons.Default.Refresh,
+                    contentDescription = if (echoTestMode) "Normal Mode" else "Echo Test Mode",
+                    tint = if (echoTestMode) Color.Green else MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
             
             FloatingActionButton(
                 onClick = {
