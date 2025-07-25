@@ -52,9 +52,9 @@ Novel MVP는 사용자와의 자연스러운 대화를 통해 일상의 이야�
 
 ### 5. 음성 인터페이스
 - **STT (Speech-to-Text)**: OpenAI Whisper 기반 실시간 한국어 음성 인식
-- **TTS (Text-to-Speech)**: Fish Speech 기반 SOTA 오픈소스 한국어 음성 합성
-- **50+ 감정 마커**: `(excited)` `(sad)` `(whispering)` 등 풍부한 감정 표현
-- **10배 빠른 성능**: `--compile` 플래그로 획기적인 속도 향상
+- **TTS (Text-to-Speech)**: ElevenLabs TTS 기반 고품질 다국어 음성 합성
+- **감정별 음성 매핑**: 16가지 감정에 최적화된 자연스러운 음성
+- **감정별 최적화**: 각 감정에 맞는 음성 자동 선택
 - 대화용 (빠른 응답)과 스토리 내레이션용 (고품질) 이중 모드 지원
 
 ```mermaid
@@ -97,11 +97,11 @@ flowchart LR
     style F fill:#ffe5d4,stroke:#d78948,stroke-width:2px
 ```
 
-### 6. 오픈소스 음성 처리 시스템
-- **Whisper STT**: 실시간 한국어 음성 인식, 다양한 모델 크기 지원
-- **Fish Speech TTS**: 최신 SOTA 한국어 TTS, 50+ 감정 마커 지원
-- **고성능 추론**: 10배 빠른 속도, 음성 복제 기능 내장
-- **Docker 컨테이너화**: 서비스별 독립 배포 및 확장성
+### 6. 하이브리드 음성 처리 시스템
+- **Whisper STT**: 실시간 한국어 음성 인식 (오픈소스 로컬 처리)
+- **ElevenLabs TTS**: 최고 품질의 AI 음성 합성 (스트리밍 + 고품질 모드)
+- **안정적인 서비스**: 로컬 + 클라우드 하이브리드 접근
+- **Docker 컨테이너화**: STT 서비스 독립 배포
 
 ## 🛠 기술 스택
 
@@ -121,7 +121,7 @@ flowchart LR
 - **감정 분석**: OpenAI GPT-4 (모델: gpt-4.1)
 - **스토리 생성**: Google Gemini 2.5 Flash
 - **음성 인식 (STT)**: OpenAI Whisper (오픈소스, 다중 모델 지원)
-- **음성 합성 (TTS)**: Fish Speech (SOTA 오픈소스, 한국어 최적화)
+- **음성 합성 (TTS)**: ElevenLabs TTS (클라우드 서비스, 다양한 감정별 음성)
 
 ### Architecture
 - **Pattern**: Clean Architecture + Multi-Agent System
@@ -187,12 +187,13 @@ OPENAI_API_KEY=sk-your-openai-api-key-here
 # Google Gemini API Configuration  
 GEMINI_API_KEY=your-gemini-api-key-here
 
-# STT/TTS Service URLs (Python services)
+# STT Service URL (Python service)
 WHISPER_STT_URL=http://localhost:5001
-FISH_SPEECH_URL=http://localhost:5002
 
-# Hugging Face Authentication (for Fish Speech model download)
-HF_TOKEN=your_huggingface_token_here
+# ElevenLabs API Configuration
+ELEVENLABS_API_KEY=your-elevenlabs-api-key-here
+
+# Note: TTS now uses ElevenLabs API (no local service needed)
 
 # Database Configuration
 DB_URL=jdbc:postgresql://localhost:5432/novel_db
@@ -207,62 +208,34 @@ GOOGLE_CLIENT_ID=your-google-oauth-client-id
 GOOGLE_CLIENT_SECRET=your-google-oauth-client-secret
 ```
 
-### 3. TTS/STT 서비스 설정
-
-#### Fish Speech 모델 다운로드를 위한 Hugging Face 인증 설정
-
-Fish Speech는 Hugging Face의 gated model을 사용하므로 인증이 필요합니다:
-
-1. **Hugging Face 토큰 획득**:
-   - https://huggingface.co/settings/tokens 에서 토큰 생성
-   - `Read` 권한으로 충분합니다
-   - fishaudio/openaudio-s1-mini 모델에 접근 요청 승인 필요
-
-2. **환경 변수 설정**:
-```bash
-# .env 파일에 추가
-HF_TOKEN=your_huggingface_token_here
-
-# 또는 환경 변수로 직접 설정
-export HF_TOKEN=your_huggingface_token_here
-```
+### 3. STT 서비스 설정
 
 #### Option 1: Docker Compose 사용 (권장)
 ```bash
-# 전체 서비스 실행 (PostgreSQL, STT, TTS 포함)
+# 필수 서비스 실행 (PostgreSQL, STT 포함)
 docker-compose up -d
 
 # 개별 서비스 실행
-docker-compose up -d whisper-stt fish-speech postgres pgadmin
+docker-compose up -d whisper-stt postgres pgadmin
 
 # 서비스 상태 확인
 docker-compose ps
 
 # 로그 확인
 docker-compose logs -f whisper-stt
-docker-compose logs -f fish-speech
 ```
-
-> **중요**: Fish Speech 서비스는 첫 실행 시 약 500MB의 openaudio-s1-mini 모델을 다운로드합니다.
-> HF_TOKEN이 설정되지 않으면 인증 오류가 발생합니다.
 
 #### Option 2: Python venv로 로컬 실행
 ```bash
-# Whisper STT 서비스
+# Whisper STT 서비스만 실행
 cd python-services/whisper-stt
 python -m venv venv
 source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 python app.py
-
-# 새 터미널에서 Fish Speech TTS 서비스
-cd python-services/fish-speech  
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-# Fish Speech API 서버 실행
-python -m tools.api_server --listen 0.0.0.0:5002
 ```
+
+> **참고**: TTS는 이제 ElevenLabs 클라우드 API를 사용하므로 별도 로컬 서비스가 불필요합니다.
 
 ### 4. 데이터베이스 설정
 
@@ -286,7 +259,9 @@ psql -U postgres -c "GRANT ALL PRIVILEGES ON DATABASE novel_db TO novel_user;"
 ### 5. API 키 획득
 - **OpenAI**: https://platform.openai.com/api-keys
 - **Google Gemini**: https://makersuite.google.com/app/apikey
-- **STT/TTS**: 오픈소스 서비스로 별도 API 키 불필요
+- **STT**: 오픈소스 서비스로 별도 API 키 불필요
+- **ElevenLabs TTS**: https://elevenlabs.io/
+- **TTS**: ElevenLabs API 키 필요
 
 ### 6. 애플리케이션 실행
 ```bash
@@ -503,7 +478,7 @@ ws.onmessage = (event) => {
 }
 ```
 
-**음성 응답** (Fish Speech 한국어 음성)
+**음성 응답** (ElevenLabs TTS 다국어 음성)
 ```json
 {
   "type": "AudioOutput",
@@ -547,12 +522,12 @@ flowchart TD
     E --> H[감정 강도<br/>intensity: 0.85]
     E --> I[키워드 추출]
     
-    F --> J[FishSpeechService]
+    F --> J[ElevenLabsTTSService]
     G --> J
     H --> J
     
-    J -->|50+ Emotion Markers| K[감정별 음성 파라미터]
-    K --> L[Fish Speech 한국어 TTS]
+    J -->|16 Emotion Voices| K[감정별 음성 파라미터]
+    K --> L[ElevenLabs TTS 다국어 합성]
     
     style D fill:#d4e5ff,stroke:#4894d7,stroke-width:2px
     style J fill:#ffe5d4,stroke:#d78948,stroke-width:2px
@@ -726,7 +701,7 @@ graph TD
 2. **EmotionAnalysisAgent**: 텍스트 감정 분석
 3. **StoryGenerationAgent**: 창의적 스토리 생성
 4. **WhisperSTTService**: 실시간 한국어 음성 인식
-5. **FishSpeechService**: SOTA 오픈소스 한국어 음성 합성
+5. **ElevenLabsTTSService**: 고품질 AI 음성 합성 (감정별 최적화)
 6. **NovelWebSocketService**: WebSocket 통신 관리
 
 ### 🔧 에이전트 시스템 상세 구조
@@ -972,7 +947,7 @@ src/main/kotlin/
 │   ├── JWTService.kt       # JWT 토큰 관리
 │   ├── NovelWebSocketService.kt
 │   ├── WhisperSTTService.kt
-│   └── FishSpeechService.kt
+│   └── ElevenLabsTTSService.kt
 ├── model/                  # 데이터베이스 모델
 │   └── Users.kt            # Exposed 테이블 정의
 ├── database/               # 데이터베이스 설정
@@ -997,13 +972,10 @@ resources/
     └── documentation.yaml  # OpenAPI 명세
 
 python-services/           # Python 마이크로서비스
-├── whisper-stt/
-│   ├── app.py            # Whisper STT FastAPI 서버
-│   ├── requirements.txt  # Python 의존성
-│   └── Dockerfile
-└── fish-speech/
-    ├── Dockerfile        # Fish Speech TTS 서비스
-    └── requirements.txt  # Korean language dependencies
+└── whisper-stt/
+    ├── app.py            # Whisper STT FastAPI 서버
+    ├── requirements.txt  # Python 의존성
+    └── Dockerfile
 ```
 
 ## 🧪 테스트 예제
@@ -1257,10 +1229,9 @@ GitHub Actions를 통한 자동 배포:
 
 ## 🚧 알려진 제한사항
 
-- STT/TTS 서비스는 Docker 컨테이너 또는 Python venv 환경 필요
+- STT 서비스는 Docker 컨테이너 또는 Python venv 환경 필요
 - Whisper 모델 다운로드 시 초기 시작 시간 지연 (약 1-2분)
-- Fish Speech 모델 다운로드 시 초기 시작 시간 지연 (약 3분)
-- Fish Speech 메모리 사용량 (S1: 4GB, S1-mini: 1GB GPU 메모리)
+- ElevenLabs TTS API 호출량에 따른 과금
 - 동시 연결 수 제한 (서버 리소스에 따라)
 - 스토리 생성은 대화 3-4회 이후 가능
 
@@ -1269,9 +1240,9 @@ GitHub Actions를 통한 자동 배포:
 - [x] 사용자 인증 및 세션 관리 (JWT 기반 완료)
 - [x] 사용자 프로필 및 성격 분석 시스템
 - [x] STT 기능 추가 (Whisper 기반 완료)
-- [x] TTS 기능 개선 (Fish Speech SOTA 오픈소스 전환)
-- [x] Docker 컨테이너화 (Python 서비스 포함)
-- [x] 50+ 감정 마커 지원 (Fish Speech 통합)
+- [x] TTS 기능 개선 (ElevenLabs TTS 고품질 음성 합성 전환)
+- [x] Docker 컨테이너화 (STT Python 서비스)
+- [x] 감정별 음성 최적화 (ElevenLabs TTS 통합)
 - [ ] 대화 히스토리 영구 저장
 - [ ] 더 다양한 스토리 장르 추가
 - [ ] 다국어 지원 확장
@@ -1303,7 +1274,7 @@ GitHub Actions를 통한 자동 배포:
 - **사용자 관리 시스템**: JWT 기반 인증, 프로필 관리, 성격 분석
 - **WebSocket 실시간 통신**: 사용자 인증 기반 개인화된 대화
 - **AI 멀티 에이전트 시스템**: 대화, 감정 분석, 스토리 생성
-- **오픈소스 STT/TTS 시스템**: Whisper + Fish Speech, 한국어 최적화
+- **하이브리드 STT/TTS 시스템**: Whisper STT + ElevenLabs TTS, 다국어 최적화
 - **구독 시스템**: 무료/프리미엄 차등 서비스
 - **일일 스토리 생성 제한**: 사용자별 쿼터 관리
 - **이벤트 기반 아키텍처**: 도메인 이벤트 발행/구독

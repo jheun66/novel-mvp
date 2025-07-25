@@ -9,7 +9,6 @@ import com.novel.mvp.data.repository.StoryRepository
 import com.novel.mvp.data.websocket.StoryWebSocketService
 import com.novel.mvp.presentation.login.LoginViewModel
 import com.novel.mvp.presentation.story.StoryViewModel
-import com.novel.mvp.presentation.websocket.WebSocketTestViewModel
 import com.novel.mvp.utils.GoogleCredentialManager
 import io.ktor.client.*
 
@@ -57,9 +56,5 @@ object AppModule {
     
     fun provideStoryViewModel(storyRepository: StoryRepository, context: Context): StoryViewModel {
         return StoryViewModel(storyRepository, context)
-    }
-    
-    fun provideWebSocketTestViewModel(storyRepository: StoryRepository): WebSocketTestViewModel {
-        return WebSocketTestViewModel(storyRepository)
     }
 }

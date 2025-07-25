@@ -1,39 +1,92 @@
 package com.novel.mvp.presentation.story
 
-import androidx.compose.animation.*
-import androidx.compose.foundation.*
-import androidx.compose.foundation.layout.*
+import android.Manifest
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.*
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import android.Manifest
-import androidx.compose.material3.*
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.AutoFixHigh
+import androidx.compose.material.icons.filled.AutoStories
+import androidx.compose.material.icons.filled.Chat
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.HighQuality
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.SmartToy
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SuggestionChip
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.adaptive.WindowAdaptiveInfo
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.novel.mvp.base.BaseComposeScreen
 import com.novel.mvp.data.model.WebSocketMessage
 import com.novel.mvp.data.websocket.ConnectionState
-import com.novel.mvp.presentation.story.components.TranscriptionDisplay
 import com.novel.mvp.presentation.story.components.VoiceInputButton
 import com.novel.mvp.utils.AudioPlayer
 import kotlinx.coroutines.launch
-import androidx.compose.ui.platform.LocalContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -41,48 +94,77 @@ fun StoryScreen(
     viewModel: StoryViewModel,
     onNavigateBack: () -> Unit
 ) {
-    val viewState by viewModel.viewState.collectAsStateWithLifecycle()
-    val sideEffect by viewModel.sideEffect.collectAsStateWithLifecycle(initialValue = null)
-    val windowAdaptiveInfo = currentWindowAdaptiveInfo()
     val context = LocalContext.current
-    
-    val listState = rememberLazyListState()
+    val lifecycleOwner = LocalLifecycleOwner.current
     val coroutineScope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     val audioPlayer = remember { AudioPlayer(context) }
+    val listState = rememberLazyListState()
     
     // Audio permission launcher
     val audioPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         if (isGranted) {
-            viewModel.handleIntent(StoryIntent.StartRecording)
+            // Permission granted - only update permission status, don't start recording automatically
+            viewModel.processIntent(StoryIntent.CheckAudioPermission)
+            coroutineScope.launch {
+                snackbarHostState.showSnackbar("음성 권한이 허용되었습니다. 이제 음성 버튼을 사용할 수 있습니다.")
+            }
         } else {
+            // Permission denied
+            viewModel.processIntent(StoryIntent.CheckAudioPermission)
             coroutineScope.launch {
                 snackbarHostState.showSnackbar("음성 입력을 위해 오디오 권한이 필요합니다.")
             }
         }
     }
     
-    // Handle side effects
-    LaunchedEffect(sideEffect) {
-        sideEffect?.let { effect ->
-            when (effect) {
+    // Observe lifecycle events to refresh permissions when returning to the app
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                viewModel.processIntent(StoryIntent.CheckAudioPermission)
+            }
+        }
+        
+        lifecycleOwner.lifecycle.addObserver(observer)
+        
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+    
+    // Cleanup audio player when screen is disposed
+    DisposableEffect(Unit) {
+        onDispose {
+            audioPlayer.destroy()
+        }
+    }
+    
+    BaseComposeScreen<StoryIntent, StoryViewState, StorySideEffect, StoryViewModel>(
+        viewModel = viewModel,
+        onSideEffect = { sideEffect ->
+            when (sideEffect) {
                 is StorySideEffect.ShowError -> {
-                    snackbarHostState.showSnackbar(effect.message)
+                    coroutineScope.launch {
+                        snackbarHostState.showSnackbar(sideEffect.message)
+                    }
                 }
                 is StorySideEffect.ScrollToBottom -> {
-                    if (viewState.conversations.isNotEmpty()) {
-                        listState.animateScrollToItem(viewState.conversations.size - 1)
+                    coroutineScope.launch {
+                        if (listState.layoutInfo.totalItemsCount > 0) {
+                            listState.animateScrollToItem(listState.layoutInfo.totalItemsCount - 1)
+                        }
                     }
                 }
                 is StorySideEffect.PlayAudio -> {
                     coroutineScope.launch {
                         try {
-                            val result = audioPlayer.playAudioFromBase64(effect.audioData)
+                            val result = audioPlayer.playAudioFromBase64(sideEffect.audioData, sideEffect.format)
                             when (result) {
                                 is com.novel.mvp.utils.PlaybackResult.Success -> {
-                                    snackbarHostState.showSnackbar("오디오 재생 시작됨")
+                                    snackbarHostState.showSnackbar("대화 오디오 재생 시작 (${sideEffect.format})")
                                 }
                                 is com.novel.mvp.utils.PlaybackResult.Error -> {
                                     snackbarHostState.showSnackbar("오디오 재생 실패: ${result.message}")
@@ -93,7 +175,25 @@ fun StoryScreen(
                         }
                     }
                 }
+                is StorySideEffect.PlayStoryAudio -> {
+                    coroutineScope.launch {
+                        try {
+                            val result = audioPlayer.playAudioFromBase64(sideEffect.audioData, sideEffect.format)
+                            when (result) {
+                                is com.novel.mvp.utils.PlaybackResult.Success -> {
+                                    snackbarHostState.showSnackbar("스토리 내레이션 재생 시작 (${sideEffect.format})")
+                                }
+                                is com.novel.mvp.utils.PlaybackResult.Error -> {
+                                    snackbarHostState.showSnackbar("스토리 오디오 재생 실패: ${result.message}")
+                                }
+                            }
+                        } catch (e: Exception) {
+                            snackbarHostState.showSnackbar("스토리 오디오 재생 오류: ${e.message}")
+                        }
+                    }
+                }
                 is StorySideEffect.RequestAudioPermission -> {
+                    // Always launch permission request when requested
                     audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                 }
                 is StorySideEffect.StartAudioRecording -> {
@@ -104,19 +204,32 @@ fun StoryScreen(
                 }
             }
         }
+    ) { viewState, onIntent ->
+        StoryScreenContent(
+            viewState = viewState,
+            onIntent = onIntent,
+            onNavigateBack = onNavigateBack,
+            snackbarHostState = snackbarHostState,
+            listState = listState
+        )
     }
-    
-    // Cleanup audio player when screen is disposed
-    DisposableEffect(Unit) {
-        onDispose {
-            audioPlayer.stopPlayback()
-        }
-    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun StoryScreenContent(
+    viewState: StoryViewState,
+    onIntent: (StoryIntent) -> Unit,
+    onNavigateBack: () -> Unit,
+    snackbarHostState: SnackbarHostState,
+    listState: LazyListState
+) {
+    val windowAdaptiveInfo = currentWindowAdaptiveInfo()
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { 
+                title = {
                     Column {
                         Text("스토리 생성")
                         ConnectionStatusIndicator(connectionState = viewState.connectionState)
@@ -129,7 +242,7 @@ fun StoryScreen(
                 },
                 actions = {
                     IconButton(
-                        onClick = { viewModel.handleIntent(StoryIntent.ClearMessages) }
+                        onClick = { onIntent(StoryIntent.ClearMessages) }
                     ) {
                         Icon(Icons.Default.Refresh, contentDescription = "새로운 대화")
                     }
@@ -143,12 +256,43 @@ fun StoryScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            // Transcription Display
-            TranscriptionDisplay(
-                transcription = viewState.pendingTranscription,
-                isTranscribing = viewState.transcribingAudio
-            )
-            
+            // Voice Transcription Status Display
+            AnimatedVisibility(
+                visible = viewState.transcribingAudio,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut()
+            ) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .shadow(4.dp, RoundedCornerShape(16.dp)),
+                    colors = CardDefaults.cardColors(
+                        containerColor = Color(0xFFD1FAE5) // emerald-100
+                    ),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (viewState.transcribingAudio) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp,
+                                color = Color(0xFF059669) // emerald-600
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(
+                                "음성을 인식하고 있습니다...",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = Color(0xFF065F46) // emerald-800
+                            )
+                        }
+                    }
+                }
+            }
+
             // Story Display Section with adaptive layout
             AnimatedVisibility(
                 visible = viewState.currentStory != null,
@@ -163,7 +307,7 @@ fun StoryScreen(
                     )
                 }
             }
-            
+
             // Conversation Section
             Box(
                 modifier = Modifier
@@ -185,15 +329,15 @@ fun StoryScreen(
                             ConversationMessageItem(
                                 message = message,
                                 onSuggestedQuestionClick = { question ->
-                                    viewModel.handleIntent(StoryIntent.SendMessage(question))
+                                    onIntent(StoryIntent.SendMessage(question))
                                 }
                             )
                         }
                     }
                 }
-                
-                // Loading indicator with improved accessibility
-                if (viewState.isLoading) {
+
+                // Loading indicator with improved accessibility - only show when actually waiting for response
+                if (viewState.isLoading && !viewState.transcribingAudio) {
                     Box(
                         modifier = Modifier
                             .align(Alignment.Center)
@@ -211,7 +355,11 @@ fun StoryScreen(
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                "응답을 생성하고 있습니다...",
+                                if (viewState.transcribingAudio) {
+                                    "음성을 인식하고 있습니다..."
+                                } else {
+                                    "응답을 생성하고 있습니다..."
+                                },
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
@@ -219,7 +367,7 @@ fun StoryScreen(
                     }
                 }
             }
-            
+
             // Generate Story Button
             AnimatedVisibility(
                 visible = viewState.isReadyForStory && viewState.currentStory == null,
@@ -258,46 +406,74 @@ fun StoryScreen(
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                         Button(
-                            onClick = { 
-                                viewModel.handleIntent(StoryIntent.GenerateStory(viewState.conversationId))
+                            onClick = {
+                                onIntent(StoryIntent.GenerateStory(viewState.conversationId))
                             },
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .shadow(4.dp, RoundedCornerShape(12.dp)),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color.Transparent
+                            )
                         ) {
-                            Icon(Icons.Default.AutoFixHigh, contentDescription = null)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("소설 생성하기")
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(
+                                        brush = Brush.horizontalGradient(
+                                            colors = listOf(
+                                                Color(0xFF10B981), // emerald-500
+                                                Color(0xFF14B8A6)  // teal-500
+                                            )
+                                        ),
+                                        shape = RoundedCornerShape(12.dp)
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Default.AutoFixHigh,
+                                    contentDescription = null,
+                                    tint = Color.White
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    "소설 생성하기",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
                         }
                     }
                 }
             }
-            
+
+
             // Message Input Section
             MessageInputSection(
                 enabled = viewState.connectionState == ConnectionState.AUTHENTICATED && !viewState.isLoading,
                 isRecording = viewState.isRecording,
                 hasAudioPermission = viewState.hasAudioPermission,
                 onSendMessage = { message ->
-                    viewModel.handleIntent(StoryIntent.SendMessage(message))
+                    onIntent(StoryIntent.SendMessage(message))
                 },
                 onStartRecording = {
-                    viewModel.handleIntent(StoryIntent.StartRecording)
+                    onIntent(StoryIntent.StartRecording)
                 },
                 onStopRecording = {
-                    viewModel.handleIntent(StoryIntent.StopRecording)
-                },
-                onRequestAudioPermission = {
-                    viewModel.handleIntent(StoryIntent.RequestAudioPermission)
+                    onIntent(StoryIntent.StopRecording)
                 },
                 onAudioRecorded = { audioData ->
-                    viewModel.handleIntent(StoryIntent.SendAudioMessage(audioData, viewState.conversationId))
+                    onIntent(StoryIntent.SendAudioMessage(audioData, viewState.conversationId))
                 },
-                onAudioEchoTest = { audioData ->
-                    viewModel.handleIntent(StoryIntent.SendAudioEchoTest(audioData, viewState.conversationId))
+                onRequestAudioPermission = {
+                    onIntent(StoryIntent.RequestAudioPermission)
                 }
             )
         }
     }
 }
+
 
 @Composable
 private fun ConnectionStatusIndicator(
@@ -440,15 +616,21 @@ private fun ConversationMessageItem(
                 modifier = Modifier
                     .size(40.dp)
                     .background(
-                        MaterialTheme.colorScheme.primaryContainer,
-                        CircleShape
-                    ),
+                        brush = Brush.radialGradient(
+                            colors = listOf(
+                                Color(0xFF34D399), // emerald-400
+                                Color(0xFF14B8A6)  // teal-500
+                            )
+                        ),
+                        shape = CircleShape
+                    )
+                    .shadow(4.dp, CircleShape),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     Icons.Default.SmartToy,
                     contentDescription = "AI",
-                    tint = MaterialTheme.colorScheme.primary,
+                    tint = Color.White,
                     modifier = Modifier.size(24.dp)
                 )
             }
@@ -477,12 +659,15 @@ private fun ConversationMessageItem(
                     modifier = Modifier.padding(12.dp)
                 ) {
                     // Voice input indicator
-                    if (message.inputType == MessageInputType.VOICE) {
+                    if (message.inputType in listOf(MessageInputType.VOICE, MessageInputType.WHISPER_STREAMING)) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
-                                Icons.Default.Mic,
+                                when (message.inputType) {
+                                    MessageInputType.WHISPER_STREAMING -> Icons.Default.HighQuality
+                                    else -> Icons.Default.Mic
+                                },
                                 contentDescription = null,
                                 modifier = Modifier.size(14.dp),
                                 tint = if (message.isFromUser) {
@@ -493,7 +678,10 @@ private fun ConversationMessageItem(
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = "음성 입력",
+                                text = when (message.inputType) {
+                                    MessageInputType.WHISPER_STREAMING -> "음성 입력"
+                                    else -> "음성 입력"
+                                },
                                 style = MaterialTheme.typography.labelSmall,
                                 color = if (message.isFromUser) {
                                     MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.7f)
@@ -563,15 +751,16 @@ private fun ConversationMessageItem(
                 modifier = Modifier
                     .size(40.dp)
                     .background(
-                        MaterialTheme.colorScheme.primary,
+                        Color(0xFF64748B), // slate-600
                         CircleShape
-                    ),
+                    )
+                    .shadow(4.dp, CircleShape),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     Icons.Default.Person,
                     contentDescription = "사용자",
-                    tint = MaterialTheme.colorScheme.onPrimary,
+                    tint = Color.White,
                     modifier = Modifier.size(24.dp)
                 )
             }
@@ -588,12 +777,10 @@ private fun MessageInputSection(
     onSendMessage: (String) -> Unit,
     onStartRecording: () -> Unit,
     onStopRecording: () -> Unit,
-    onRequestAudioPermission: () -> Unit,
     onAudioRecorded: (ByteArray) -> Unit,
-    onAudioEchoTest: (ByteArray) -> Unit
+    onRequestAudioPermission: () -> Unit
 ) {
     var message by remember { mutableStateOf("") }
-    var echoTestMode by remember { mutableStateOf(false) }
     
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -622,31 +809,16 @@ private fun MessageInputSection(
             
             // Voice Input Button
             VoiceInputButton(
+                modifier = Modifier.padding(end = 4.dp),
                 isRecording = isRecording,
                 hasPermission = hasAudioPermission,
                 enabled = enabled,
                 onStartRecording = onStartRecording,
                 onStopRecording = onStopRecording,
-                onRequestPermission = onRequestAudioPermission,
-                onAudioRecorded = if (echoTestMode) onAudioEchoTest else onAudioRecorded,
-                modifier = Modifier.padding(end = 4.dp)
+                onAudioRecorded = onAudioRecorded,
+                onRequestPermission = onRequestAudioPermission
             )
             
-            // Echo Test Toggle Button
-            IconButton(
-                onClick = {
-                    echoTestMode = !echoTestMode
-                },
-                enabled = enabled && !isRecording,
-                modifier = Modifier.size(40.dp)
-            ) {
-                Icon(
-                    if (echoTestMode) Icons.Default.Check else Icons.Default.Refresh,
-                    contentDescription = if (echoTestMode) "Normal Mode" else "Echo Test Mode",
-                    tint = if (echoTestMode) Color.Green else MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
             
             FloatingActionButton(
                 onClick = {
@@ -655,14 +827,31 @@ private fun MessageInputSection(
                         message = ""
                     }
                 },
-                modifier = Modifier.size(48.dp),
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary
+                modifier = Modifier
+                    .size(48.dp)
+                    .shadow(8.dp, CircleShape),
+                containerColor = Color.Transparent
             ) {
-                Icon(
-                    Icons.Default.Send,
-                    contentDescription = "전송"
-                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            brush = Brush.radialGradient(
+                                colors = listOf(
+                                    Color(0xFF10B981), // emerald-500
+                                    Color(0xFF14B8A6)  // teal-500
+                                )
+                            ),
+                            shape = CircleShape
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.Send,
+                        contentDescription = "전송",
+                        tint = Color.White
+                    )
+                }
             }
         }
     }

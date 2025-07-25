@@ -33,6 +33,14 @@ class StoryRepository(
     val authMessages: Flow<WebSocketMessage.AuthResponse> = webSocketService.messages
         .filter { it is WebSocketMessage.AuthResponse }
         .map { it as WebSocketMessage.AuthResponse }
+
+    val transcriptionMessages: Flow<WebSocketMessage.TranscriptionResult> = webSocketService.messages
+        .filter { it is WebSocketMessage.TranscriptionResult }
+        .map { it as WebSocketMessage.TranscriptionResult }
+    
+    val streamingTranscriptionMessages: Flow<WebSocketMessage.StreamingTranscriptionResult> = webSocketService.messages
+        .filter { it is WebSocketMessage.StreamingTranscriptionResult }
+        .map { it as WebSocketMessage.StreamingTranscriptionResult }
     
     suspend fun connect(): Boolean {
         return webSocketService.connect()
@@ -45,9 +53,18 @@ class StoryRepository(
     suspend fun sendAudioMessage(audioData: ByteArray, conversationId: String) {
         webSocketService.sendAudioMessage(audioData, conversationId)
     }
-    
-    suspend fun sendAudioEchoTest(audioData: ByteArray, conversationId: String) {
-        webSocketService.sendAudioEchoTest(audioData, conversationId)
+
+    // Real-time streaming methods
+    suspend fun sendAudioStreamStart(conversationId: String, sampleRate: Int = 16000, format: String = "pcm16", channels: Int = 1) {
+        webSocketService.sendAudioStreamStart(conversationId, sampleRate, format, channels)
+    }
+
+    suspend fun sendAudioStreamChunk(conversationId: String, audioData: ByteArray, sequenceNumber: Int) {
+        webSocketService.sendAudioStreamChunk(conversationId, audioData, sequenceNumber)
+    }
+
+    suspend fun sendAudioStreamEnd(conversationId: String, totalChunks: Int) {
+        webSocketService.sendAudioStreamEnd(conversationId, totalChunks)
     }
     
     suspend fun generateStory(conversationId: String) {

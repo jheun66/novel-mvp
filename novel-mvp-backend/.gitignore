@@ -37,3 +37,8 @@ out/
 
 ### Environment Variables ###
 .env
+
+# Google Service Account Key
+service-account-key.json
+*.json
+!gradle/wrapper/gradle-wrapper.json

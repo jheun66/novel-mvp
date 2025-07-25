@@ -21,31 +21,6 @@ services:
       retries: 3
       start_period: 60s
 
-  # Fish Speech TTS Service  
-  fish-speech:
-    build:
-      context: ./python-services/fish-speech
-      dockerfile: Dockerfile
-    container_name: novel-fish-speech
-    restart: unless-stopped
-    ports:
-      - "5002:5002"
-    environment:
-      - PYTHONUNBUFFERED=1
-      - GRADIO_SERVER_NAME=0.0.0.0
-      - HF_HUB_CACHE=/checkpoints/.cache
-      - FISH_SPEECH_DEVICE=auto
-      - HF_TOKEN=${HF_TOKEN}
-    volumes:
-      - fish_models:/checkpoints
-      - fish_cache:/checkpoints/.cache
-      - fish_references:/references
-    healthcheck:
-      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:5002/health')"]
-      interval: 30s
-      timeout: 60s
-      retries: 3
-      start_period: 180s
 
   postgres:
     image: postgres
@@ -116,31 +91,9 @@ services:
   #      timeout: 3s
   #      retries: 3
 
-#  fish-speech:
-#    image: fishaudio/fish-speech:latest
-#    platform: linux/amd64
-#    container_name: fish-speech
-#    restart: unless-stopped
-#    ports:
-#      - "7860:7860"
-#    environment:
-#      - GRADIO_SERVER_NAME=0.0.0.0
-#      - GRADIO_SERVER_PORT=7860
-#    volumes:
-#      - ./checkpoints:/opt/fish-speech/checkpoints
-#      - ./outputs:/opt/fish-speech/outputs
-#    working_dir: /opt/fish-speech
-#    command: >
-#      python -m tools.run_webui
 
 volumes:
   whisper_cache:
-    driver: local
-  fish_models:
-    driver: local
-  fish_cache:
-    driver: local
-  fish_references:
     driver: local
   postgres_data:
     driver: local

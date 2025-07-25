@@ -82,6 +82,11 @@ dependencies {
     // Serialization
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.androidx.adaptive.android)
+    
+    // Media3 ExoPlayer for audio playback
+    implementation(libs.media3.exoplayer)
+    implementation(libs.media3.datasource)
+    implementation(libs.media3.common)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

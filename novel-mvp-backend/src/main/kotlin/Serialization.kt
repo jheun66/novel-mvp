@@ -27,6 +27,11 @@ val globalJson = Json {
             subclass(WebSocketMessage.AuthRequest::class)
             subclass(WebSocketMessage.AuthResponse::class)
             subclass(WebSocketMessage.AudioEchoTest::class)
+            subclass(WebSocketMessage.AudioStreamStart::class)
+            subclass(WebSocketMessage.AudioStreamChunk::class)
+            subclass(WebSocketMessage.AudioStreamEnd::class)
+            subclass(WebSocketMessage.StreamingTranscriptionResult::class)
+            subclass(WebSocketMessage.TranscriptionResult::class)
         }
     }
 }

@@ -2,14 +2,12 @@ package com.novel.services
 
 import io.ktor.client.*
 import io.ktor.client.call.*
-import io.ktor.client.request.*
 import io.ktor.client.request.forms.*
 import io.ktor.http.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.Serializable
 import org.slf4j.LoggerFactory
-import java.io.ByteArrayInputStream
 
 @Serializable
 data class WhisperConfig(
@@ -194,111 +192,6 @@ class WhisperSTTService(
             } catch (e: Exception) {
                 logger.error("Final chunk transcription error", e)
             }
-        }
-    }
-
-    /**
-     * Detect language from audio
-     */
-    suspend fun detectLanguage(audioBytes: ByteArray): LanguageDetectionResponse {
-        return try {
-            val response = httpClient.submitFormWithBinaryData(
-                url = "${config.baseUrl}/v1/audio/detect-language",
-                formData = formData {
-                    append("file", audioBytes, Headers.build {
-                        append(HttpHeaders.ContentType, "audio/wav")
-                        append(HttpHeaders.ContentDisposition, "filename=\"audio.wav\"")
-                    })
-                    append("model", config.model)
-                }
-            )
-
-            if (response.status.isSuccess()) {
-                response.body<LanguageDetectionResponse>()
-            } else {
-                logger.error("Language detection failed with status: ${response.status}")
-                LanguageDetectionResponse(detected_language = "ko", confidence = 0.5f)
-            }
-        } catch (e: Exception) {
-            logger.error("Language detection error", e)
-            LanguageDetectionResponse(detected_language = "ko", confidence = 0.5f)
-        }
-    }
-
-    /**
-     * Quick transcription for short audio clips (conversation)
-     */
-    suspend fun quickTranscribe(audioBytes: ByteArray): String {
-        return try {
-            val result = transcribeAudio(
-                audioBytes = audioBytes,
-                language = config.language,
-                enableTimestamps = false
-            )
-            result.text.trim()
-        } catch (e: Exception) {
-            logger.error("Quick transcription failed: ${e.message}", e)
-            throw e // Let the caller handle the error
-        }
-    }
-
-    /**
-     * Enhanced transcription with speaker emotion detection
-     */
-    suspend fun transcribeWithEmotion(audioBytes: ByteArray): Pair<String, String> {
-        // First get the transcription
-        val transcription = quickTranscribe(audioBytes)
-        
-        // TODO: Implement emotion detection from audio
-        // For now, return neutral emotion
-        val detectedEmotion = "NEUTRAL"
-        
-        return Pair(transcription, detectedEmotion)
-    }
-
-    /**
-     * Validate audio format and quality
-     */
-    fun validateAudioFormat(audioBytes: ByteArray): Boolean {
-        return try {
-            // Basic validation - check if it's not empty and has reasonable size
-            audioBytes.isNotEmpty() && 
-            audioBytes.size > 1000 && // At least 1KB
-            audioBytes.size < MAX_AUDIO_SIZE
-        } catch (e: Exception) {
-            logger.error("Audio validation error", e)
-            false
-        }
-    }
-
-    /**
-     * Get service health status
-     */
-    suspend fun getHealthStatus(): Boolean {
-        return try {
-            val response = httpClient.get("${config.baseUrl}/health")
-            response.status.isSuccess()
-        } catch (e: Exception) {
-            logger.error("Health check failed", e)
-            false
-        }
-    }
-
-    /**
-     * Get available models from Whisper service
-     */
-    suspend fun getAvailableModels(): List<String> {
-        return try {
-            val response = httpClient.get("${config.baseUrl}/v1/models")
-            if (response.status.isSuccess()) {
-                response.body<Map<String, List<Map<String, String>>>>()["data"]
-                    ?.mapNotNull { it["id"] } ?: listOf("base")
-            } else {
-                listOf("base", "small", "medium", "large")
-            }
-        } catch (e: Exception) {
-            logger.error("Failed to get available models", e)
-            listOf("base", "small", "medium", "large")
         }
     }
 

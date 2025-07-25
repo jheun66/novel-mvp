@@ -1,15 +1,44 @@
 package com.novel.mvp.presentation.story.components
 
-import androidx.compose.animation.*
-import androidx.compose.animation.core.*
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.ExperimentalAnimationApi
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -19,20 +48,18 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.novel.mvp.utils.AudioRecorder
 import com.novel.mvp.utils.RecordingState
-import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalAnimationApi::class)
 @Composable
 fun VoiceInputButton(
+    modifier: Modifier = Modifier,
     isRecording: Boolean,
     hasPermission: Boolean,
     enabled: Boolean,
     onStartRecording: () -> Unit,
     onStopRecording: () -> Unit,
-    onRequestPermission: () -> Unit,
     onAudioRecorded: (ByteArray) -> Unit,
-    onAudioEchoTest: ((ByteArray) -> Unit)? = null, // Optional echo test callback
-    modifier: Modifier = Modifier
+    onRequestPermission: () -> Unit
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -59,7 +86,7 @@ fun VoiceInputButton(
         label = "button_color"
     )
 
-    // Recording visualization
+    // Simple amplitude animation for visual feedback
     LaunchedEffect(isRecording) {
         if (isRecording) {
             audioRecorder.startRecording().collect { state ->
@@ -77,12 +104,7 @@ fun VoiceInputButton(
                     }
                     is RecordingState.Completed -> {
                         currentAmplitude = 0f
-                        if (onAudioEchoTest != null) {
-                            // If echo test callback is provided, use it instead
-                            onAudioEchoTest(state.audioData)
-                        } else {
-                            onAudioRecorded(state.audioData)
-                        }
+                        onAudioRecorded(state.audioData)
                         onStopRecording()
                     }
                     is RecordingState.Error -> {
@@ -155,57 +177,57 @@ fun VoiceInputButton(
     }
 }
 
-@Composable
-fun TranscriptionDisplay(
-    transcription: String?,
-    isTranscribing: Boolean,
-    modifier: Modifier = Modifier
-) {
-    AnimatedVisibility(
-        visible = transcription != null || isTranscribing,
-        enter = slideInVertically { -it } + fadeIn(),
-        exit = slideOutVertically { -it } + fadeOut(),
-        modifier = modifier
-    ) {
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.secondaryContainer
-            )
-        ) {
-            Row(
-                modifier = Modifier.padding(12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                if (isTranscribing) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(16.dp),
-                        strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.secondary
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "음성을 텍스트로 변환 중...",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer
-                    )
-                } else {
-                    Icon(
-                        Icons.Default.Mic,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.secondary
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = transcription ?: "",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer
-                    )
-                }
-            }
-        }
-    }
-}
+//@Composable
+//fun TranscriptionDisplay(
+//    modifier: Modifier = Modifier,
+//    transcription: String?,
+//    isTranscribing: Boolean
+//) {
+//    AnimatedVisibility(
+//        visible = transcription != null || isTranscribing,
+//        enter = slideInVertically { -it } + fadeIn(),
+//        exit = slideOutVertically { -it } + fadeOut(),
+//        modifier = modifier
+//    ) {
+//        Card(
+//            modifier = Modifier
+//                .fillMaxWidth()
+//                .padding(horizontal = 16.dp),
+//            colors = CardDefaults.cardColors(
+//                containerColor = MaterialTheme.colorScheme.secondaryContainer
+//            )
+//        ) {
+//            Row(
+//                modifier = Modifier.padding(12.dp),
+//                verticalAlignment = Alignment.CenterVertically
+//            ) {
+//                if (isTranscribing) {
+//                    CircularProgressIndicator(
+//                        modifier = Modifier.size(16.dp),
+//                        strokeWidth = 2.dp,
+//                        color = MaterialTheme.colorScheme.secondary
+//                    )
+//                    Spacer(modifier = Modifier.width(8.dp))
+//                    Text(
+//                        text = "음성을 텍스트로 변환 중...",
+//                        style = MaterialTheme.typography.bodyMedium,
+//                        color = MaterialTheme.colorScheme.onSecondaryContainer
+//                    )
+//                } else {
+//                    Icon(
+//                        Icons.Default.Mic,
+//                        contentDescription = null,
+//                        modifier = Modifier.size(16.dp),
+//                        tint = MaterialTheme.colorScheme.secondary
+//                    )
+//                    Spacer(modifier = Modifier.width(8.dp))
+//                    Text(
+//                        text = transcription ?: "",
+//                        style = MaterialTheme.typography.bodyMedium,
+//                        color = MaterialTheme.colorScheme.onSecondaryContainer
+//                    )
+//                }
+//            }
+//        }
+//    }
+//}

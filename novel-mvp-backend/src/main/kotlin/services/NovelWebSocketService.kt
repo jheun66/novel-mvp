@@ -104,13 +104,58 @@ sealed class WebSocketMessage {
         val audioData: String,  // Base64 encoded audio to echo back
         val conversationId: String = UUID.randomUUID().toString()
     ) : WebSocketMessage()
+
+    @Serializable
+    @SerialName("TranscriptionResult")
+    data class TranscriptionResult(
+        val conversationId: String,
+        val text: String,
+        val confidence: Float? = null,
+        val timestamp: Long = System.currentTimeMillis()
+    ) : WebSocketMessage()
+    
+    // Real-time streaming message types
+    @Serializable
+    @SerialName("AudioStreamStart")
+    data class AudioStreamStart(
+        val conversationId: String = UUID.randomUUID().toString(),
+        val sampleRate: Int = 16000,
+        val format: String = "pcm16",
+        val channels: Int = 1
+    ) : WebSocketMessage()
+    
+    @Serializable
+    @SerialName("AudioStreamChunk")
+    data class AudioStreamChunk(
+        val conversationId: String,
+        val audioData: String,  // Base64 encoded raw PCM chunk
+        val sequenceNumber: Int,
+        val timestamp: Long = System.currentTimeMillis()
+    ) : WebSocketMessage()
+    
+    @Serializable
+    @SerialName("AudioStreamEnd")
+    data class AudioStreamEnd(
+        val conversationId: String,
+        val totalChunks: Int
+    ) : WebSocketMessage()
+    
+    @Serializable
+    @SerialName("StreamingTranscriptionResult")
+    data class StreamingTranscriptionResult(
+        val conversationId: String,
+        val text: String,
+        val isPartial: Boolean,
+        val confidence: Float? = null,
+        val timestamp: Long = System.currentTimeMillis()
+    ) : WebSocketMessage()
 }
 
 class NovelWebSocketService(
     private val conversationAgent: ConversationAgent,
     private val emotionAnalysisAgent: EmotionAnalysisAgent,
     private val storyGenerationAgent: StoryGenerationAgent,
-    private val fishSpeechService: FishSpeechService,
+    private val elevenLabsTTSService: ElevenLabsTTSService,
     private val whisperSTTService: WhisperSTTService,
     private val communicator: AgentCommunicator
 ) : KoinComponent {
@@ -123,6 +168,7 @@ class NovelWebSocketService(
     
     private val webSocketAuth = WebSocketAuth()
     private val conversationContexts = mutableMapOf<String, ConversationContext>()
+    private val audioStreamBuffers = mutableMapOf<String, AudioStreamBuffer>()
     
     suspend fun handleWebSocketSession(session: DefaultWebSocketSession, token: String) {
         // Authenticate immediately with provided token
@@ -194,9 +240,10 @@ class NovelWebSocketService(
             logger.error("WebSocket error: ${e.message}", e)
         } finally {
             logger.info("WebSocket disconnected: ${authenticatedUser?.userId}")
-            // Clean up any remaining conversation contexts for this user
+            // Clean up any remaining conversation contexts and audio buffers for this user
             authenticatedUser?.let { user ->
                 conversationContexts.entries.removeIf { it.value.userId == user.userId }
+                audioStreamBuffers.entries.removeIf { it.value.userId == user.userId }
             }
         }
     }
@@ -221,6 +268,15 @@ class NovelWebSocketService(
                         }
                         is WebSocketMessage.AudioEchoTest -> {
                             handleAudioEchoTest(message, outgoing, user)
+                        }
+                        is WebSocketMessage.AudioStreamStart -> {
+                            handleAudioStreamStart(message, outgoing, user)
+                        }
+                        is WebSocketMessage.AudioStreamChunk -> {
+                            handleAudioStreamChunk(message, outgoing, user)
+                        }
+                        is WebSocketMessage.AudioStreamEnd -> {
+                            handleAudioStreamEnd(message, outgoing, user)
                         }
                         else -> {}
                     }
@@ -248,7 +304,7 @@ class NovelWebSocketService(
         try {
             // Convert Base64 audio data to ByteArray
             val audioBytes = try {
-                java.util.Base64.getDecoder().decode(message.audioData)
+                Base64.getDecoder().decode(message.audioData)
             } catch (e: Exception) {
                 logger.error("Failed to decode Base64 audio data", e)
                 outgoing.send(WebSocketMessage.Error("오디오 데이터 형식이 올바르지 않습니다."))
@@ -287,6 +343,12 @@ class NovelWebSocketService(
             if (transcribedText.isBlank()) {
                 outgoing.send(WebSocketMessage.Error("음성을 인식할 수 없습니다. 더 명확하게 말씀해주세요. (오디오가 너무 짧거나 조용할 수 있습니다)"))
                 return
+            } else {
+                outgoing.send(WebSocketMessage.TranscriptionResult(
+                    conversationId = message.conversationId,
+                    text = transcribedText,
+                    confidence = 0.0f
+                ))
             }
             
             // Process the transcribed text as a regular text input
@@ -327,6 +389,159 @@ class NovelWebSocketService(
         } catch (e: Exception) {
             logger.error("Error processing audio echo test", e)
             outgoing.send(WebSocketMessage.Error("오디오 에코 테스트 중 오류가 발생했습니다: ${e.message}"))
+        }
+    }
+    
+    private suspend fun handleAudioStreamStart(
+        message: WebSocketMessage.AudioStreamStart,
+        outgoing: Channel<WebSocketMessage>,
+        user: AuthenticatedUser
+    ) {
+        try {
+            logger.info("Starting audio stream for conversation: ${message.conversationId}, user: ${user.userId}")
+            
+            // Create or reset audio stream buffer for this conversation
+            audioStreamBuffers[message.conversationId] = AudioStreamBuffer(
+                conversationId = message.conversationId,
+                userId = user.userId,
+                sampleRate = message.sampleRate,
+                format = message.format,
+                channels = message.channels
+            )
+            
+            logger.info("Audio stream buffer created for conversation: ${message.conversationId}")
+            
+        } catch (e: Exception) {
+            logger.error("Error starting audio stream", e)
+            outgoing.send(WebSocketMessage.Error("오디오 스트림 시작 중 오류가 발생했습니다: ${e.message}"))
+        }
+    }
+    
+    private suspend fun handleAudioStreamChunk(
+        message: WebSocketMessage.AudioStreamChunk,
+        outgoing: Channel<WebSocketMessage>,
+        user: AuthenticatedUser
+    ) {
+        try {
+            val buffer = audioStreamBuffers[message.conversationId]
+            if (buffer == null) {
+                logger.error("Audio stream buffer not found for conversation: ${message.conversationId}")
+                outgoing.send(WebSocketMessage.Error("오디오 스트림이 시작되지 않았습니다."))
+                return
+            }
+            
+            // Decode chunk data
+            val chunkData = try {
+                Base64.getDecoder().decode(message.audioData)
+            } catch (e: Exception) {
+                logger.error("Failed to decode audio chunk", e)
+                outgoing.send(WebSocketMessage.Error("오디오 청크 디코딩 실패: ${e.message}"))
+                return
+            }
+            
+            // Add chunk to buffer
+            buffer.addChunk(message.sequenceNumber, chunkData)
+            
+            logger.debug("Added audio chunk ${message.sequenceNumber} to buffer (${chunkData.size} bytes)")
+            
+            // Check if we have enough data for partial transcription (e.g., every 2 seconds worth of data)
+            if (buffer.shouldProcessPartialTranscription()) {
+                val audioData = buffer.getAccumulatedAudio()
+                if (audioData.isNotEmpty()) {
+                    // Process partial transcription
+                    try {
+                        val transcriptionResult = whisperSTTService.transcribeAudio(
+                            audioBytes = audioData,
+                            language = "ko",
+                            enableTimestamps = false
+                        )
+                        
+                        if (transcriptionResult.text.isNotBlank()) {
+                            outgoing.send(WebSocketMessage.StreamingTranscriptionResult(
+                                conversationId = message.conversationId,
+                                text = transcriptionResult.text,
+                                isPartial = true,
+                                confidence = 0.8f // Placeholder confidence
+                            ))
+                            
+                            logger.debug("Sent partial transcription: '${transcriptionResult.text}'")
+                        }
+                    } catch (e: Exception) {
+                        logger.error("Partial transcription failed", e)
+                        // Continue processing without failing the stream
+                    }
+                }
+            }
+            
+        } catch (e: Exception) {
+            logger.error("Error processing audio chunk", e)
+            outgoing.send(WebSocketMessage.Error("오디오 청크 처리 중 오류가 발생했습니다: ${e.message}"))
+        }
+    }
+    
+    private suspend fun handleAudioStreamEnd(
+        message: WebSocketMessage.AudioStreamEnd,
+        outgoing: Channel<WebSocketMessage>,
+        user: AuthenticatedUser
+    ) {
+        try {
+            val buffer = audioStreamBuffers.remove(message.conversationId)
+            if (buffer == null) {
+                logger.error("Audio stream buffer not found for conversation: ${message.conversationId}")
+                outgoing.send(WebSocketMessage.Error("오디오 스트림 버퍼를 찾을 수 없습니다."))
+                return
+            }
+            
+            logger.info("Ending audio stream for conversation: ${message.conversationId}, total chunks: ${message.totalChunks}")
+            
+            // Get final accumulated audio
+            val finalAudioData = buffer.getFinalAudio()
+            
+            if (finalAudioData.isEmpty()) {
+                outgoing.send(WebSocketMessage.Error("최종 오디오 데이터가 비어있습니다."))
+                return
+            }
+            
+            // Final transcription
+            val transcriptionResult = whisperSTTService.transcribeAudio(
+                audioBytes = finalAudioData,
+                language = "ko",
+                enableTimestamps = false
+            )
+            
+            val transcribedText = transcriptionResult.text
+            logger.info("Final transcription result: '$transcribedText' (${transcribedText.length} chars)")
+            
+            if (transcribedText.isBlank()) {
+                outgoing.send(WebSocketMessage.StreamingTranscriptionResult(
+                    conversationId = message.conversationId,
+                    text = "",
+                    isPartial = false,
+                    confidence = 0.0f
+                ))
+                outgoing.send(WebSocketMessage.Error("음성을 인식할 수 없습니다. 더 명확하게 말씀해주세요."))
+                return
+            }
+            
+            // Send final transcription result
+            outgoing.send(WebSocketMessage.StreamingTranscriptionResult(
+                conversationId = message.conversationId,
+                text = transcribedText,
+                isPartial = false,
+                confidence = 0.9f // Higher confidence for final result
+            ))
+            
+            // Process the transcribed text as a regular text input
+            val textInput = WebSocketMessage.TextInput(
+                text = transcribedText,
+                conversationId = message.conversationId
+            )
+            
+            handleTextInput(textInput, outgoing, user)
+            
+        } catch (e: Exception) {
+            logger.error("Error ending audio stream", e)
+            outgoing.send(WebSocketMessage.Error("오디오 스트림 종료 중 오류가 발생했습니다: ${e.message}"))
         }
     }
     
@@ -374,28 +589,57 @@ class NovelWebSocketService(
             readyForStory = conversationResult.shouldGenerateStory
         ))
         
-        // 4. Generate TTS with emotion using Fish Speech
+        // 4. Generate TTS with emotion using ElevenLabs TTS
         try {
-            val ttsResult = fishSpeechService.generateChatTTS(
+            logger.info("=== WebSocket Chat TTS Generation ===")
+            logger.info("User ID: ${user.userId}")
+            logger.info("Full AI response text: '${conversationResult.response}' (${conversationResult.response.length} chars)")
+            logger.info("Detected emotion: ${conversationResult.emotion}")
+            logger.info("Should generate story: ${conversationResult.shouldGenerateStory}")
+            
+            val ttsResult = elevenLabsTTSService.generateChatTTS(
                 text = conversationResult.response,
                 emotion = conversationResult.emotion ?: "NEUTRAL",
-                speed = 1.2f
+                speed = 1.1f
             )
             
             if (ttsResult.isSuccess) {
                 val audioData = ttsResult.getOrNull()
                 if (audioData != null) {
-                    outgoing.send(WebSocketMessage.AudioOutput(
-                        audioData = Base64.getEncoder().encodeToString(audioData),
+                    logger.info("Chat TTS generation successful:")
+                    logger.info("- Raw audio bytes: ${audioData.size}")
+                    logger.info("- Estimated size in KB: ${String.format("%.2f", audioData.size / 1024.0)}")
+                    
+                    val base64Audio = Base64.getEncoder().encodeToString(audioData)
+                    logger.info("Base64 encoding:")
+                    logger.info("- Base64 string length: ${base64Audio.length} chars")
+                    logger.info("- Encoding efficiency: ${String.format("%.2f", (base64Audio.length.toDouble() / audioData.size) * 100)}%")
+                    
+                    // Log first and last few chars for debugging
+                    if (base64Audio.length > 20) {
+                        logger.info("- Base64 preview: ${base64Audio.take(10)}...${base64Audio.takeLast(10)}")
+                    }
+                    
+                    val audioOutput = WebSocketMessage.AudioOutput(
+                        audioData = base64Audio,
                         emotion = conversationResult.emotion,
                         audioType = "chat"
-                    ))
+                    )
+                    
+                    outgoing.send(audioOutput)
+                    
+                    logger.info("Chat audio successfully sent to WebSocket client")
+                    logger.info("Final AudioOutput message size: ~${base64Audio.length + 100} chars (approx)")
+                } else {
+                    logger.warn("Chat TTS result was successful but audio data is null")
                 }
             } else {
                 logger.error("Failed to generate chat TTS: ${ttsResult.exceptionOrNull()?.message}")
+                ttsResult.exceptionOrNull()?.printStackTrace()
             }
         } catch (e: Exception) {
             logger.error("Failed to generate TTS", e)
+            e.printStackTrace()
             // Continue without audio if TTS fails
         }
     }
@@ -471,17 +715,24 @@ class NovelWebSocketService(
         // 4. Generate story narration TTS
         var storyAudioData: String? = null
         try {
-            val storyTTSResult = fishSpeechService.generateStoryTTS(
+            logger.debug("Generating story TTS for: '${storyResult.story.take(50)}...' with emotion: ${emotionResult.primaryEmotion}")
+            
+            val storyTTSResult = elevenLabsTTSService.generateStoryTTS(
                 text = storyResult.story,
                 emotion = emotionResult.primaryEmotion,
-                speed = 1.0f,
+                speed = 0.9f,
                 addPauses = true
             )
             
             if (storyTTSResult.isSuccess) {
                 val audioData = storyTTSResult.getOrNull()
                 if (audioData != null) {
+                    logger.debug("Story TTS generated successfully - Audio size: ${audioData.size} bytes")
+                    
                     storyAudioData = Base64.getEncoder().encodeToString(audioData)
+                    logger.debug("Story audio encoded to Base64 - Length: ${storyAudioData?.length} chars")
+                } else {
+                    logger.warn("Story TTS result was successful but audio data is null")
                 }
             } else {
                 logger.error("Failed to generate story TTS: ${storyTTSResult.exceptionOrNull()?.message}")
@@ -491,14 +742,18 @@ class NovelWebSocketService(
         }
 
         // 5. Send story with optional audio
-        outgoing.send(WebSocketMessage.StoryOutput(
+        val storyOutput = WebSocketMessage.StoryOutput(
             title = storyResult.title,
             content = storyResult.story,
             emotion = emotionResult.primaryEmotion,
             genre = storyResult.genre,
             emotionalArc = storyResult.emotionalArc,
             audioData = storyAudioData
-        ))
+        )
+        
+        logger.debug("Sending story to WebSocket client - Title: '${storyResult.title}', Content length: ${storyResult.story.length}, Audio: ${if (storyAudioData != null) "included (${storyAudioData.length} chars)" else "none"}")
+        
+        outgoing.send(storyOutput)
         
         // 6. Publish domain event for story generation
         try {
@@ -558,4 +813,135 @@ data class ChatMessage(
 
 enum class ChatRole {
     User, Assistant, System
+}
+
+// Audio stream buffer for real-time processing
+data class AudioStreamBuffer(
+    val conversationId: String,
+    val userId: String,
+    val sampleRate: Int,
+    val format: String,
+    val channels: Int,
+    private val chunks: MutableMap<Int, ByteArray> = mutableMapOf(),
+    private var lastProcessedChunk: Int = -1,
+    private var totalBytes: Int = 0,
+    private var startTime: Long = System.currentTimeMillis()
+) {
+    companion object {
+        // Process partial transcription every 2 seconds worth of audio
+        private const val PARTIAL_TRANSCRIPTION_INTERVAL_MS = 2000
+        // Minimum audio size for processing (1 second of 16kHz 16-bit mono audio)
+        private const val MIN_AUDIO_SIZE_FOR_PROCESSING = 32000
+    }
+
+    fun addChunk(sequenceNumber: Int, data: ByteArray) {
+        chunks[sequenceNumber] = data
+        totalBytes += data.size
+    }
+
+    fun shouldProcessPartialTranscription(): Boolean {
+        val elapsedTime = System.currentTimeMillis() - startTime
+        if (elapsedTime >= PARTIAL_TRANSCRIPTION_INTERVAL_MS) {
+            startTime = elapsedTime
+        } else return false
+        return totalBytes >= MIN_AUDIO_SIZE_FOR_PROCESSING
+                && chunks.keys.maxOrNull()?.let { it > lastProcessedChunk } == true
+    }
+    
+    fun getAccumulatedAudio(): ByteArray {
+        val sortedChunks = chunks.toSortedMap()
+        val result = mutableListOf<Byte>()
+
+        for ((sequenceNumber, data) in sortedChunks) {
+            if (sequenceNumber > lastProcessedChunk) {
+                result.addAll(data.toList())
+            }
+        }
+        // Update last processed chunk
+        lastProcessedChunk = chunks.keys.maxOrNull() ?: lastProcessedChunk
+        
+        return if (result.size >= MIN_AUDIO_SIZE_FOR_PROCESSING) {
+            // Convert to WAV format for Whisper
+            convertPCMToWav(result.toByteArray(), sampleRate, channels)
+        } else {
+            byteArrayOf()
+        }
+    }
+    
+    fun getFinalAudio(): ByteArray {
+        val sortedChunks = chunks.toSortedMap()
+        val result = mutableListOf<Byte>()
+        
+        for ((_, data) in sortedChunks) {
+            result.addAll(data.toList())
+        }
+        
+        return if (result.isNotEmpty()) {
+            // Convert to WAV format for Whisper
+            convertPCMToWav(result.toByteArray(), sampleRate, channels)
+        } else {
+            byteArrayOf()
+        }
+    }
+    
+    private fun convertPCMToWav(pcmData: ByteArray, sampleRate: Int, channels: Int): ByteArray {
+        val totalDataLen = pcmData.size + 36
+        val byteRate = sampleRate * channels * 16 / 8
+        
+        val header = ByteArray(44)
+        
+        // RIFF header
+        header[0] = 'R'.code.toByte()
+        header[1] = 'I'.code.toByte()
+        header[2] = 'F'.code.toByte()
+        header[3] = 'F'.code.toByte()
+        header[4] = (totalDataLen and 0xff).toByte()
+        header[5] = ((totalDataLen shr 8) and 0xff).toByte()
+        header[6] = ((totalDataLen shr 16) and 0xff).toByte()
+        header[7] = ((totalDataLen shr 24) and 0xff).toByte()
+        
+        // WAVE header
+        header[8] = 'W'.code.toByte()
+        header[9] = 'A'.code.toByte()
+        header[10] = 'V'.code.toByte()
+        header[11] = 'E'.code.toByte()
+        
+        // fmt subchunk
+        header[12] = 'f'.code.toByte()
+        header[13] = 'm'.code.toByte()
+        header[14] = 't'.code.toByte()
+        header[15] = ' '.code.toByte()
+        header[16] = 16 // subchunk1size
+        header[17] = 0
+        header[18] = 0
+        header[19] = 0
+        header[20] = 1 // audio format (PCM)
+        header[21] = 0
+        header[22] = channels.toByte()
+        header[23] = 0
+        header[24] = (sampleRate and 0xff).toByte()
+        header[25] = ((sampleRate shr 8) and 0xff).toByte()
+        header[26] = ((sampleRate shr 16) and 0xff).toByte()
+        header[27] = ((sampleRate shr 24) and 0xff).toByte()
+        header[28] = (byteRate and 0xff).toByte()
+        header[29] = ((byteRate shr 8) and 0xff).toByte()
+        header[30] = ((byteRate shr 16) and 0xff).toByte()
+        header[31] = ((byteRate shr 24) and 0xff).toByte()
+        header[32] = (channels * 16 / 8).toByte() // block align
+        header[33] = 0
+        header[34] = 16 // bits per sample
+        header[35] = 0
+        
+        // data subchunk
+        header[36] = 'd'.code.toByte()
+        header[37] = 'a'.code.toByte()
+        header[38] = 't'.code.toByte()
+        header[39] = 'a'.code.toByte()
+        header[40] = (pcmData.size and 0xff).toByte()
+        header[41] = ((pcmData.size shr 8) and 0xff).toByte()
+        header[42] = ((pcmData.size shr 16) and 0xff).toByte()
+        header[43] = ((pcmData.size shr 24) and 0xff).toByte()
+        
+        return header + pcmData
+    }
 }

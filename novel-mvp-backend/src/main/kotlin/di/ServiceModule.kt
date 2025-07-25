@@ -11,8 +11,8 @@ import com.novel.infrastructure.services.PersonalityAnalyzerImpl
 import com.novel.infrastructure.user.UserRepositoryImpl
 import com.novel.middleware.OAuthTokenValidator
 import com.novel.services.JWTService
-import com.novel.services.FishSpeechService
-import com.novel.services.FishSpeechConfig
+import com.novel.services.ElevenLabsTTSService
+import com.novel.services.ElevenLabsConfig
 import com.novel.services.WhisperSTTService
 import com.novel.services.WhisperConfig
 import io.ktor.client.*
@@ -39,7 +39,7 @@ val serviceModule = module {
         )
     }
 
-    // HTTP Client
+    // General HTTP Client
     single<HttpClient> {
         HttpClient(CIO) {
             install(ContentNegotiation) {
@@ -61,6 +61,31 @@ val serviceModule = module {
                     !request.url.toString().contains("/v1/audio/transcriptions")
                 }
                 sanitizeHeader { name -> name.lowercase() in listOf("authorization", "cookie") }
+            }
+        }
+    }
+    
+    // ElevenLabs API HTTP Client - Optimized for TTS requests
+    single<HttpClient>(qualifier = org.koin.core.qualifier.named("elevenLabsClient")) {
+        HttpClient(CIO) {
+            install(ContentNegotiation) {
+                json(Json {
+                    ignoreUnknownKeys = true
+                    isLenient = true
+                    encodeDefaults = true
+                })
+            }
+            engine {
+                requestTimeout = 60_000 // 1 minute for TTS processing
+            }
+            install(Logging) {
+                logger = Logger.DEFAULT
+                level = LogLevel.INFO
+                filter { request ->
+                    // Exclude body logging for TTS endpoints to avoid large audio data logging
+                    !request.url.toString().contains("/text-to-speech/")
+                }
+                sanitizeHeader { name -> name.lowercase() in listOf("authorization", "xi-api-key") }
             }
         }
     }
@@ -150,16 +175,19 @@ val serviceModule = module {
     single<DailyStoryCountResetJob> { DailyStoryCountResetJob() }
     
     // TTS/STT Services
-    single<FishSpeechConfig> {
+    single<ElevenLabsConfig> {
         val dotenv = dotenv { ignoreIfMissing = true }
-        val fishSpeechUrl = dotenv["FISH_SPEECH_URL"]
-            ?: System.getenv("FISH_SPEECH_URL")
-            ?: "http://localhost:5002"
-        FishSpeechConfig(baseUrl = fishSpeechUrl)
+        val elevenLabsApiKey = dotenv["ELEVENLABS_API_KEY"]
+            ?: System.getenv("ELEVENLABS_API_KEY")
+            ?: throw IllegalStateException("ELEVENLABS_API_KEY not set in .env file or environment variables")
+        ElevenLabsConfig(apiKey = elevenLabsApiKey)
     }
     
-    single<FishSpeechService> {
-        FishSpeechService(get<FishSpeechConfig>(), get<HttpClient>())
+    single<ElevenLabsTTSService> {
+        ElevenLabsTTSService(
+            config = get<ElevenLabsConfig>(), 
+            httpClient = get<HttpClient>()
+        )
     }
     
     single<WhisperConfig> {

@@ -1,10 +1,13 @@
 package com.novel.mvp.presentation.story
 
+import com.novel.mvp.base.MviIntent
+import com.novel.mvp.base.MviSideEffect
+import com.novel.mvp.base.MviViewState
 import com.novel.mvp.data.model.WebSocketMessage
 import com.novel.mvp.data.websocket.ConnectionState
 
 // Intent
-sealed class StoryIntent {
+sealed class StoryIntent : MviIntent {
     object ConnectWebSocket : StoryIntent()
     object DisconnectWebSocket : StoryIntent()
     data class SendMessage(val text: String) : StoryIntent()
@@ -14,7 +17,14 @@ sealed class StoryIntent {
     object StartRecording : StoryIntent()
     object StopRecording : StoryIntent()
     object RequestAudioPermission : StoryIntent()
-    data class SendAudioEchoTest(val audioData: ByteArray, val conversationId: String) : StoryIntent()
+    
+    
+    // Streaming audio intents
+    object StartAudioStreaming : StoryIntent()
+    object StopAudioStreaming : StoryIntent()
+    
+    // Permission related intents
+    object CheckAudioPermission : StoryIntent()
 }
 
 // ViewState
@@ -29,13 +39,19 @@ data class StoryViewState(
     val isRecording: Boolean = false,
     val hasAudioPermission: Boolean = false,
     val transcribingAudio: Boolean = false,
-    val pendingTranscription: String? = null
-)
+
+    val transcriptionResult: String? = null,
+
+    val isAudioStreaming: Boolean = false,
+    val streamingTranscriptionResult: String? = null,
+    val streamingTranscriptionIsPartial: Boolean = false
+) : MviViewState
 
 // SideEffect
-sealed class StorySideEffect {
+sealed class StorySideEffect : MviSideEffect {
     data class ShowError(val message: String) : StorySideEffect()
-    data class PlayAudio(val audioData: String) : StorySideEffect()
+    data class PlayAudio(val audioData: String, val format: String = "mp3") : StorySideEffect()
+    data class PlayStoryAudio(val audioData: String, val format: String = "mp3") : StorySideEffect()
     object ScrollToBottom : StorySideEffect()
     object RequestAudioPermission : StorySideEffect()
     object StartAudioRecording : StorySideEffect()
@@ -57,5 +73,6 @@ data class ConversationMessage(
 
 enum class MessageInputType {
     TEXT,
-    VOICE
+    VOICE,
+    WHISPER_STREAMING
 }

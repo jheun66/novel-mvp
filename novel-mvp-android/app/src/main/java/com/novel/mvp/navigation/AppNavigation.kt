@@ -1,9 +1,7 @@
 package com.novel.mvp.navigation
 
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -12,7 +10,6 @@ import androidx.navigation.compose.rememberNavController
 import com.novel.mvp.di.AppModule
 import com.novel.mvp.presentation.login.LoginScreen
 import com.novel.mvp.presentation.story.StoryScreen
-import com.novel.mvp.presentation.websocket.WebSocketTestScreen
 import com.novel.mvp.utils.GoogleSignInResult
 import kotlinx.coroutines.launch
 
@@ -76,8 +73,6 @@ fun AppNavigation(
         
         composable("main") {
             // Initialize story screen dependencies
-            val httpClient = AppModule.provideHttpClient()
-            val tokenStorage = AppModule.provideTokenStorage(context)
             val webSocketService = AppModule.provideStoryWebSocketService(httpClient, tokenStorage)
             val storyRepository = AppModule.provideStoryRepository(webSocketService)
             val storyViewModel = AppModule.provideStoryViewModel(storyRepository, context)
@@ -88,17 +83,6 @@ fun AppNavigation(
                     navController.navigateUp()
                 }
             )
-        }
-        
-        composable("websocket_test") {
-            // Initialize WebSocket test screen dependencies
-            val httpClient = AppModule.provideHttpClient()
-            val tokenStorage = AppModule.provideTokenStorage(context)
-            val webSocketService = AppModule.provideStoryWebSocketService(httpClient, tokenStorage)
-            val storyRepository = AppModule.provideStoryRepository(webSocketService)
-            val webSocketTestViewModel = AppModule.provideWebSocketTestViewModel(storyRepository)
-            
-            WebSocketTestScreen(viewModel = webSocketTestViewModel)
         }
     }
 }
